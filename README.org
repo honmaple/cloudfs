@@ -1,0 +1,26 @@
+** CloudFS
+   #+begin_src go
+   package main
+
+   import (
+       "github.com/honmaple/cloudfs/driver/webdav"
+       "github.com/honmaple/cloudfs/middleware"
+   )
+
+   func main() {
+       client, err := webdav.New(&webdav.Option{})
+       if err != nil {
+           panic(err)
+       }
+
+       client, err = middleware.New(
+           client,
+           middleware.PrefixFS("/aaaaa"),
+           middleware.CacheFS(&middleware.CacheOption{}),
+       )
+       if err != nil {
+           panic(err)
+       }
+       defer client.Close()
+   }
+   #+end_src
