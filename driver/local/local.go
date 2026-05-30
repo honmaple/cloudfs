@@ -44,7 +44,7 @@ func (d *Local) getActualFile(file cloudfs.File) cloudfs.File {
 	return cloudfs.NewFile(filepath.ToSlash(file.Path()), file)
 }
 
-func (d *Local) List(ctx context.Context, path string, metas ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *Local) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
 	entries, err := os.ReadDir(d.getActualPath(path))
 	if err != nil {
 		return nil, err

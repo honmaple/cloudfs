@@ -52,7 +52,7 @@ func (d *S3) getPath(path string, isDir bool) string {
 	return path
 }
 
-func (d *S3) listV2(ctx context.Context, path string, _metas ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *S3) listV2(ctx context.Context, path string, _opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
 	input := &s3.ListObjectsV2Input{
 		Bucket:    aws.String(d.opt.Bucket),
 		Prefix:    aws.String(d.getPath(path, true)),
@@ -88,9 +88,9 @@ func (d *S3) listV2(ctx context.Context, path string, _metas ...cloudfs.ListOpti
 	return files, nil
 }
 
-func (d *S3) List(ctx context.Context, path string, metas ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *S3) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
 	if d.opt.ListVersion == "v2" {
-		return d.listV2(ctx, path, metas...)
+		return d.listV2(ctx, path, opts...)
 	}
 	input := &s3.ListObjectsInput{
 		Bucket:    aws.String(d.opt.Bucket),
