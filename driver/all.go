@@ -7,6 +7,7 @@ import (
 	_ "github.com/honmaple/cloudfs/driver/gdrive"
 	_ "github.com/honmaple/cloudfs/driver/github"
 	_ "github.com/honmaple/cloudfs/driver/local"
+	_ "github.com/honmaple/cloudfs/driver/onedrive"
 	_ "github.com/honmaple/cloudfs/driver/openlist"
 	_ "github.com/honmaple/cloudfs/driver/quark"
 	_ "github.com/honmaple/cloudfs/driver/s3"
