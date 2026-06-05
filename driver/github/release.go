@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/go-github/v70/github"
 	"github.com/honmaple/cloudfs"
+	"github.com/honmaple/cloudfs/driver"
 	"github.com/honmaple/cloudfs/utils/httputil"
 	"github.com/honmaple/cloudfs/utils/structutil"
 )
@@ -249,7 +250,7 @@ func NewRelease(opt *ReleaseOption) (cloudfs.FS, error) {
 }
 
 func init() {
-	cloudfs.Register("github-release", func() cloudfs.Option {
+	driver.Register("github-release", func() driver.Option {
 		return &ReleaseOption{}
 	})
 }

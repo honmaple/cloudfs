@@ -4,17 +4,16 @@ import (
 	"github.com/spf13/viper"
 )
 
-type meta struct {
-	*viper.Viper
-}
-
 type (
+	Option struct {
+		*viper.Viper
+	}
 	ListOption map[string]any
 	CopyOption map[string]any
 )
 
-func Meta(opts ...map[string]any) *meta {
-	m := &meta{viper.New()}
+func ListOptions(opts ...ListOption) *Option {
+	m := &Option{viper.New()}
 	for _, opt := range opts {
 		for k, v := range opt {
 			m.Set(k, v)
@@ -23,8 +22,8 @@ func Meta(opts ...map[string]any) *meta {
 	return m
 }
 
-func ListOptions(opts ...ListOption) *meta {
-	m := &meta{viper.New()}
+func NewOption(opts ...map[string]any) *Option {
+	m := &Option{viper.New()}
 	for _, opt := range opts {
 		for k, v := range opt {
 			m.Set(k, v)

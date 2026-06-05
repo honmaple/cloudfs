@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/honmaple/cloudfs"
+	"github.com/honmaple/cloudfs/driver"
 	"github.com/honmaple/cloudfs/utils/httputil"
 	"github.com/honmaple/cloudfs/utils/ioutil"
 	"github.com/honmaple/cloudfs/utils/structutil"
@@ -392,7 +393,7 @@ func New(opt *Option) (cloudfs.FS, error) {
 }
 
 func init() {
-	cloudfs.Register("foxel", func() cloudfs.Option {
+	driver.Register("foxel", func() driver.Option {
 		return &Option{}
 	})
 }

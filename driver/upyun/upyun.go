@@ -8,6 +8,7 @@ import (
 	filepath "path"
 
 	"github.com/honmaple/cloudfs"
+	"github.com/honmaple/cloudfs/driver"
 	"github.com/honmaple/cloudfs/utils/ioutil"
 	"github.com/honmaple/cloudfs/utils/structutil"
 	"github.com/upyun/go-sdk/v3/upyun"
@@ -156,7 +157,7 @@ func New(opt *Option) (cloudfs.FS, error) {
 }
 
 func init() {
-	cloudfs.Register("upyun", func() cloudfs.Option {
+	driver.Register("upyun", func() driver.Option {
 		return &Option{}
 	})
 }

@@ -11,6 +11,7 @@ import (
 
 	driver115 "github.com/SheltonZhu/115driver/pkg/driver"
 	"github.com/honmaple/cloudfs"
+	"github.com/honmaple/cloudfs/driver"
 	"github.com/honmaple/cloudfs/driver/quark"
 	"github.com/honmaple/cloudfs/utils/httputil"
 	"github.com/honmaple/cloudfs/utils/structutil"
@@ -174,7 +175,7 @@ func New(opt *Option) (cloudfs.FS, error) {
 }
 
 func init() {
-	cloudfs.Register("pan115", func() cloudfs.Option {
+	driver.Register("pan115", func() driver.Option {
 		return &Option{}
 	})
 }

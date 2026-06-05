@@ -12,6 +12,7 @@ import (
 	filepath "path"
 
 	"github.com/honmaple/cloudfs"
+	"github.com/honmaple/cloudfs/driver"
 	"github.com/honmaple/cloudfs/utils/httputil"
 	"github.com/honmaple/cloudfs/utils/ioutil"
 	"github.com/honmaple/cloudfs/utils/structutil"
@@ -245,7 +246,7 @@ func New(opt *Option) (cloudfs.FS, error) {
 }
 
 func init() {
-	cloudfs.Register("openlist", func() cloudfs.Option {
+	driver.Register("openlist", func() driver.Option {
 		return &Option{}
 	})
 }

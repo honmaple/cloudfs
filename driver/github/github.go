@@ -14,6 +14,7 @@ import (
 
 	"github.com/google/go-github/v70/github"
 	"github.com/honmaple/cloudfs"
+	"github.com/honmaple/cloudfs/driver"
 	"github.com/honmaple/cloudfs/utils/httputil"
 	"github.com/honmaple/cloudfs/utils/structutil"
 )
@@ -286,7 +287,7 @@ func New(opt *Option) (cloudfs.FS, error) {
 }
 
 func init() {
-	cloudfs.Register("github", func() cloudfs.Option {
+	driver.Register("github", func() driver.Option {
 		return &Option{}
 	})
 }

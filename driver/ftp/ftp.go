@@ -10,6 +10,7 @@ import (
 	filepath "path"
 
 	"github.com/honmaple/cloudfs"
+	"github.com/honmaple/cloudfs/driver"
 	"github.com/honmaple/cloudfs/utils/ioutil"
 	"github.com/honmaple/cloudfs/utils/structutil"
 	"github.com/jlaffaye/ftp"
@@ -141,7 +142,7 @@ func New(opt *Option) (cloudfs.FS, error) {
 }
 
 func init() {
-	cloudfs.Register("ftp", func() cloudfs.Option {
+	driver.Register("ftp", func() driver.Option {
 		return &Option{}
 	})
 }

@@ -6,11 +6,11 @@ providers through one filesystem-like interface.
 It provides:
 
 - A common `cloudfs.FS` interface for listing, reading, writing, moving, copying,
-  renaming, and deleting files.
+renaming, and deleting files.
 - Driver packages for Local, FTP, SFTP, S3, SMB, WebDAV, Google Drive, OneDrive,
-  GitHub, and other storage providers.
+GitHub, and other storage providers.
 - Middleware wrappers for prefix mapping, caching, rate limiting, compression,
-  encryption, and custom hooks.
+encryption, and custom hooks.
 
 ## Install
 
@@ -24,10 +24,10 @@ Import only the driver you need:
 import "github.com/honmaple/cloudfs/driver/webdav"
 ```
 
-Or import all built-in drivers for dynamic creation through `cloudfs.New`:
+Or import all built-in drivers for dynamic creation through `driver.New`:
 
 ```go
-import _ "github.com/honmaple/cloudfs/driver"
+import _ "github.com/honmaple/cloudfs/driver/all"
 ```
 
 ## Quick Start
@@ -36,8 +36,8 @@ import _ "github.com/honmaple/cloudfs/driver"
 package main
 
 import (
-	"context"
-	"io"
+    "context"
+    "io"
 	"strings"
 
 	"github.com/honmaple/cloudfs/driver/local"
@@ -103,28 +103,28 @@ registration:
 
 ```go
 import (
-	"github.com/honmaple/cloudfs"
-	_ "github.com/honmaple/cloudfs/driver"
+	"github.com/honmaple/cloudfs/driver"
+	_ "github.com/honmaple/cloudfs/driver/all"
 )
 
-fs, err := cloudfs.New("webdav", map[string]any{
+fs, err := driver.New("webdav", map[string]any{
 	"endpoint": "https://example.com/dav",
 	"username": "user",
 	"password": "pass",
 })
 ```
 
-Use `cloudfs.NewWithString` when the configuration is already JSON:
+Use `driver.NewFromString` when the configuration is already JSON:
 
 ```go
-fs, err := cloudfs.NewWithString("local", `{"path":"/tmp/cloudfs"}`)
+fs, err := driver.NewFromString("local", `{"path":"/tmp/cloudfs"}`)
 ```
 
 Useful helpers:
 
 ```go
-ok := cloudfs.Exists("s3")
-err := cloudfs.Verify("s3", `{"endpoint":"https://s3.example.com","bucket":"files"}`)
+ok := driver.Exists("s3")
+err := driver.VerifyOption("s3", `{"endpoint":"https://s3.example.com","bucket":"files"}`)
 ```
 
 ## Common Operations
@@ -146,6 +146,7 @@ err = fs.Remove(ctx, "/new-dir/new-name.txt")
 
 `List` and `Stat` return `cloudfs.FileInfo`, which follows `io/fs.FileInfo`
 and adds `Path()`, `Type()`, and `ExtraInfo()` for driver-specific metadata.
+Use `cloudfs.Entry` when you need to build a `cloudfs.FileInfo` manually.
 
 Reading supports `io.Reader`, `io.Seeker`, and `io.Closer`:
 
@@ -198,19 +199,19 @@ Common examples:
 
 ```go
 // Local
-fs, err := cloudfs.New("local", map[string]any{
+fs, err := driver.New("local", map[string]any{
 	"path": "/data/files",
 })
 
 // WebDAV
-fs, err = cloudfs.New("webdav", map[string]any{
+fs, err = driver.New("webdav", map[string]any{
 	"endpoint": "https://example.com/dav",
 	"username": "user",
 	"password": "pass",
 })
 
 // S3-compatible storage
-fs, err = cloudfs.New("s3", map[string]any{
+fs, err = driver.New("s3", map[string]any{
 	"endpoint": "https://s3.example.com",
 	"bucket": "files",
 	"region": "us-east-1",
@@ -224,7 +225,7 @@ Google Drive supports credentials JSON, a credentials file, an access token, or
 Application Default Credentials from the Google client library:
 
 ```go
-fs, err := cloudfs.New("gdrive", map[string]any{
+fs, err := driver.New("gdrive", map[string]any{
 	"credentials_file": "/path/to/service-account.json",
 	"root_id": "root",
 	"export_mime_type": "application/pdf",
@@ -244,7 +245,7 @@ Useful Google Drive options:
 OneDrive uses Microsoft Graph and requires an OAuth access token:
 
 ```go
-fs, err := cloudfs.New("onedrive", map[string]any{
+fs, err := driver.New("onedrive", map[string]any{
 	"access_token": "token",
 })
 ```
@@ -350,7 +351,7 @@ func (opt *Option) NewFS() (cloudfs.FS, error) {
 }
 
 func init() {
-	cloudfs.Register("example", func() cloudfs.Option {
+	driver.Register("example", func() driver.Option {
 		return &Option{}
 	})
 }

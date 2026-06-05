@@ -11,6 +11,7 @@ import (
 	filepath "path"
 
 	"github.com/honmaple/cloudfs"
+	"github.com/honmaple/cloudfs/driver"
 	"github.com/honmaple/cloudfs/utils/httputil"
 	"github.com/honmaple/cloudfs/utils/structutil"
 	"github.com/tidwall/gjson"
@@ -200,7 +201,7 @@ func New(opt *Option) (cloudfs.FS, error) {
 }
 
 func init() {
-	cloudfs.Register("quark", func() cloudfs.Option {
+	driver.Register("quark", func() driver.Option {
 		return &Option{}
 	})
 }

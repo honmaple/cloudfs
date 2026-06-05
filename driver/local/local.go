@@ -10,6 +10,7 @@ import (
 	"runtime"
 
 	"github.com/honmaple/cloudfs"
+	"github.com/honmaple/cloudfs/driver"
 	"github.com/honmaple/cloudfs/utils/ioutil"
 	"github.com/honmaple/cloudfs/utils/structutil"
 )
@@ -211,7 +212,7 @@ func New(opt *Option) (cloudfs.FS, error) {
 }
 
 func init() {
-	cloudfs.Register("local", func() cloudfs.Option {
+	driver.Register("local", func() driver.Option {
 		return &Option{}
 	})
 }

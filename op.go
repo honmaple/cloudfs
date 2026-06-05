@@ -59,7 +59,7 @@ func CopyDir(ctx context.Context, srcFS FS, src, dst string) error {
 }
 
 func Copy(ctx context.Context, srcFS FS, src, dst string, opts ...map[string]any) error {
-	meta := Meta(opts...)
+	meta := NewOption(opts...)
 
 	dstFile, err := srcFS.Stat(ctx, dst)
 	if err != nil {

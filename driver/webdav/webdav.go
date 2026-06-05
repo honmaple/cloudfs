@@ -10,6 +10,7 @@ import (
 	filepath "path"
 
 	"github.com/honmaple/cloudfs"
+	"github.com/honmaple/cloudfs/driver"
 	"github.com/honmaple/cloudfs/utils/ioutil"
 	"github.com/honmaple/cloudfs/utils/structutil"
 	"github.com/studio-b12/gowebdav"
@@ -144,7 +145,7 @@ func New(opt *Option) (cloudfs.FS, error) {
 }
 
 func init() {
-	cloudfs.Register("webdav", func() cloudfs.Option {
+	driver.Register("webdav", func() driver.Option {
 		return &Option{}
 	})
 }
