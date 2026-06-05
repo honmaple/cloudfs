@@ -112,14 +112,6 @@ func (d *wrapFS) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	return d.FS.Open(ctx, actualPath)
 }
 
-// func (d *wrapFS) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
-//	actualPath, err := d.getActualPath(ctx, path)
-//	if err != nil {
-//		return nil, err
-//	}
-//	return d.FS.Create(ctx, actualPath)
-// }
-
 func (d *wrapFS) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	// /aaa/bbb/ccc/ddd
 	if path == "/" {

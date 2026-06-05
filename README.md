@@ -262,10 +262,10 @@ Useful OneDrive options:
 ## Middlewares
 
 Middlewares wrap an existing `cloudfs.FS`. They are applied in the order passed
-to `middleware.NewFS`.
+to `cloudfs.New`.
 
 ```go
-wrapped, err := middleware.NewFS(
+wrapped, err := cloudfs.New(
 	fs,
 	middleware.PrefixFS("/tenant-a"),
 	middleware.CacheFS(&middleware.CacheOption{}),
@@ -277,7 +277,7 @@ wrapped, err := middleware.NewFS(
 Maps all user-visible paths under a backend prefix.
 
 ```go
-fs, err = middleware.NewFS(fs, middleware.PrefixFS("/storage/root"))
+fs, err = cloudfs.New(fs, middleware.PrefixFS("/storage/root"))
 ```
 
 ### CacheFS
@@ -286,7 +286,7 @@ Caches directory listings and invalidates affected parent directories on writes.
 `ExpireTime` is in seconds; default is 60.
 
 ```go
-fs, err = middleware.NewFS(fs, middleware.CacheFS(&middleware.CacheOption{
+fs, err = cloudfs.New(fs, middleware.CacheFS(&middleware.CacheOption{
 	ExpireTime: 60,
 }))
 ```
@@ -296,7 +296,7 @@ fs, err = middleware.NewFS(fs, middleware.CacheFS(&middleware.CacheOption{
 Limits operation frequency.
 
 ```go
-fs, err = middleware.NewFS(fs, middleware.RateLimitFS(&middleware.RateLimitOption{
+fs, err = cloudfs.New(fs, middleware.RateLimitFS(&middleware.RateLimitOption{
 	Wait: true,
 	Burst: 30,
 	Limit: time.Second,
@@ -309,7 +309,7 @@ Compresses content on write and decompresses it on read. File names are not
 changed by this middleware.
 
 ```go
-fs, err = middleware.NewFS(fs, middleware.CompressFS(&middleware.CompressOption{}))
+fs, err = cloudfs.New(fs, middleware.CompressFS(&middleware.CompressOption{}))
 ```
 
 ### EncryptFS
@@ -317,7 +317,7 @@ fs, err = middleware.NewFS(fs, middleware.CompressFS(&middleware.CompressOption{
 Encrypts file content and can optionally encrypt directory and file names.
 
 ```go
-fs, err = middleware.NewFS(fs, middleware.EncryptFS(&middleware.EncryptOption{
+fs, err = cloudfs.New(fs, middleware.EncryptFS(&middleware.EncryptOption{
 	Password: "secret",
 	DirName: false,
 	FileName: true,
@@ -329,7 +329,7 @@ fs, err = middleware.NewFS(fs, middleware.EncryptFS(&middleware.EncryptOption{
 Use `HookFS` when you need custom path or file metadata rewriting.
 
 ```go
-fs, err = middleware.NewFS(fs, middleware.HookFS(&middleware.HookOption{
+fs, err = cloudfs.New(fs, middleware.HookFS(&middleware.HookOption{
 	PathFn: func(path string) string {
 		return "/backend" + path
 	},

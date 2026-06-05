@@ -20,20 +20,6 @@ type (
 	WrapFunc func(FS) (FS, error)
 )
 
-func WrapFS(fs FS, fns ...WrapFunc) (FS, error) {
-	var (
-		newFS = fs
-		err   error
-	)
-	for _, fn := range fns {
-		newFS, err = fn(newFS)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return newFS, nil
-}
-
 type BaseFS struct{}
 
 func (BaseFS) List(context.Context, string, ...ListOption) ([]FileInfo, error) {
@@ -48,3 +34,17 @@ func (BaseFS) Stat(context.Context, string) (FileInfo, error)     { return nil, 
 func (BaseFS) Open(context.Context, string) (File, error)         { return nil, ErrNotSupport }
 func (BaseFS) Create(context.Context, string) (FileWriter, error) { return nil, ErrNotSupport }
 func (BaseFS) Close() error                                       { return nil }
+
+func New(fs FS, fns ...WrapFunc) (FS, error) {
+	var (
+		newFS = fs
+		err   error
+	)
+	for _, fn := range fns {
+		newFS, err = fn(newFS)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return newFS, nil
+}
