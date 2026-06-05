@@ -9,7 +9,7 @@ import (
 )
 
 type WrapReader struct {
-	cloudfs.FileReader
+	cloudfs.File
 	r io.Reader
 }
 
@@ -54,7 +54,7 @@ func (d *compressFS) uncompress(in io.Reader) (*gzip.Reader, error) {
 	return gzip.NewReader(in)
 }
 
-func (d *compressFS) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *compressFS) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	r, err := d.FS.Open(ctx, path)
 	if err != nil {
 		return nil, err

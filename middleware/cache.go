@@ -21,12 +21,12 @@ func (opt *CacheOption) NewFS(fs cloudfs.FS) (cloudfs.FS, error) {
 type cacheFS struct {
 	cloudfs.FS
 	opt   *CacheOption
-	cache *expirable.LRU[string, []cloudfs.File]
+	cache *expirable.LRU[string, []cloudfs.FileInfo]
 }
 
 var _ cloudfs.FS = (*cacheFS)(nil)
 
-func (d *cacheFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *cacheFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	files, ok := d.cache.Get(path)
 	if ok {
 		return files, nil
@@ -42,7 +42,7 @@ func (d *cacheFS) List(ctx context.Context, path string, opts ...cloudfs.ListOpt
 }
 
 // 部分服务会先获取文件信息，再获取列表，Get方式也需要缓存
-func (d *cacheFS) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *cacheFS) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	files, ok := d.cache.Get(filepath.Dir(path))
 	if ok {
 		for _, file := range files {
@@ -112,7 +112,7 @@ func newCacheFS(fs cloudfs.FS, opt *CacheOption) (cloudfs.FS, error) {
 	return &cacheFS{
 		FS:    fs,
 		opt:   opt,
-		cache: expirable.NewLRU[string, []cloudfs.File](0, nil, opt.ExpireTime*time.Second),
+		cache: expirable.NewLRU[string, []cloudfs.FileInfo](0, nil, opt.ExpireTime*time.Second),
 	}, nil
 }
 

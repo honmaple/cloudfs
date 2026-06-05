@@ -55,7 +55,7 @@ func (d *GithubRelease) request(ctx context.Context, method, url string, opts ..
 	return nil, fmt.Errorf("bad status: %d", resp.StatusCode)
 }
 
-func (d *GithubRelease) download(ctx context.Context, url string, size int64) (cloudfs.FileReader, error) {
+func (d *GithubRelease) download(ctx context.Context, url string, size int64) (cloudfs.File, error) {
 	if url == "" {
 		return nil, errors.New("no download url")
 	}
@@ -68,7 +68,7 @@ func (d *GithubRelease) download(ctx context.Context, url string, size int64) (c
 			}
 		}))
 	}
-	return cloudfs.NewFileReader(size, rangeFunc)
+	return cloudfs.NewFile(size, rangeFunc)
 }
 
 func (d *GithubRelease) splitPath(path string) (string, string) {
@@ -129,7 +129,7 @@ func (d *GithubRelease) getReleaseAsset(ctx context.Context, repo, releaseName, 
 	return nil, fmt.Errorf("no asset named %s found in %s", name, releaseName)
 }
 
-func (d *GithubRelease) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *GithubRelease) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	repo, release, actualPath := d.getActualPath(path)
 	if repo == "" {
 		return nil, fmt.Errorf("can't stat %s", path)
@@ -141,14 +141,7 @@ func (d *GithubRelease) Stat(ctx context.Context, path string) (cloudfs.File, er
 			return nil, err
 		}
 
-		info := &cloudfs.FileInfo{
-			Path:    path,
-			Name:    result.GetName(),
-			Size:    int64(result.GetSize()),
-			IsDir:   true,
-			ModTime: result.GetUpdatedAt().Time,
-		}
-		return info.File(), nil
+		return newFileInfo(path, result.GetName(), int64(result.GetSize()), true, result.GetUpdatedAt().Time), nil
 	}
 
 	if actualPath == "/" {
@@ -157,13 +150,7 @@ func (d *GithubRelease) Stat(ctx context.Context, path string) (cloudfs.File, er
 			return nil, err
 		}
 
-		info := &cloudfs.FileInfo{
-			Path:    path,
-			Name:    url.PathEscape(result.GetName()),
-			ModTime: result.GetPublishedAt().Time,
-			IsDir:   true,
-		}
-		return info.File(), nil
+		return newFileInfo(path, url.PathEscape(result.GetName()), 0, true, result.GetPublishedAt().Time), nil
 	}
 
 	assetName, actualPath := d.splitPath(actualPath)
@@ -172,18 +159,12 @@ func (d *GithubRelease) Stat(ctx context.Context, path string) (cloudfs.File, er
 		if err != nil {
 			return nil, err
 		}
-		info := &cloudfs.FileInfo{
-			Path:    path,
-			Name:    result.GetName(),
-			Size:    int64(result.GetSize()),
-			ModTime: result.GetUpdatedAt().Time,
-		}
-		return info.File(), nil
+		return newFileInfo(path, result.GetName(), int64(result.GetSize()), false, result.GetUpdatedAt().Time), nil
 	}
 	return nil, &fs.PathError{Op: "list", Path: path, Err: fs.ErrNotExist}
 }
 
-func (d *GithubRelease) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *GithubRelease) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	repo, release, actualPath := d.getActualPath(path)
 	if repo == "" || release == "" || actualPath == "/" {
 		return nil, &fs.PathError{Op: "open", Path: path, Err: fs.ErrInvalid}
@@ -197,11 +178,11 @@ func (d *GithubRelease) Open(ctx context.Context, path string) (cloudfs.FileRead
 	return d.download(ctx, result.GetBrowserDownloadURL(), int64(result.GetSize()))
 }
 
-func (d *GithubRelease) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *GithubRelease) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	repo, release, actualPath := d.getActualPath(path)
 
 	if repo == "" {
-		files := make([]cloudfs.File, 0)
+		files := make([]cloudfs.FileInfo, 0)
 		for i := 1; ; i++ {
 			opts := &github.RepositoryListByUserOptions{
 				ListOptions: github.ListOptions{
@@ -214,14 +195,7 @@ func (d *GithubRelease) List(ctx context.Context, path string, opts ...cloudfs.L
 				return nil, err
 			}
 			for _, result := range results {
-				info := &cloudfs.FileInfo{
-					Path:    path,
-					Name:    result.GetName(),
-					Size:    int64(result.GetSize()),
-					IsDir:   true,
-					ModTime: result.GetUpdatedAt().Time,
-				}
-				files = append(files, info.File())
+				files = append(files, newFileInfo(path, result.GetName(), int64(result.GetSize()), true, result.GetUpdatedAt().Time))
 			}
 			if len(results) < 100 {
 				break
@@ -235,15 +209,9 @@ func (d *GithubRelease) List(ctx context.Context, path string, opts ...cloudfs.L
 		if err != nil {
 			return nil, err
 		}
-		files := make([]cloudfs.File, len(results))
+		files := make([]cloudfs.FileInfo, len(results))
 		for i, result := range results {
-			info := &cloudfs.FileInfo{
-				Path:    path,
-				Name:    url.PathEscape(result.GetName()),
-				ModTime: result.GetPublishedAt().Time,
-				IsDir:   true,
-			}
-			files[i] = info.File()
+			files[i] = newFileInfo(path, url.PathEscape(result.GetName()), 0, true, result.GetPublishedAt().Time)
 		}
 		return files, nil
 	}
@@ -253,15 +221,9 @@ func (d *GithubRelease) List(ctx context.Context, path string, opts ...cloudfs.L
 		if err != nil {
 			return nil, err
 		}
-		files := make([]cloudfs.File, len(release.Assets))
+		files := make([]cloudfs.FileInfo, len(release.Assets))
 		for i, asset := range release.Assets {
-			info := &cloudfs.FileInfo{
-				Path:    path,
-				Name:    asset.GetName(),
-				Size:    int64(asset.GetSize()),
-				ModTime: asset.GetUpdatedAt().Time,
-			}
-			files[i] = info.File()
+			files[i] = newFileInfo(path, asset.GetName(), int64(asset.GetSize()), false, asset.GetUpdatedAt().Time)
 		}
 		return files, nil
 	}

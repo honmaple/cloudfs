@@ -100,7 +100,7 @@ func (d *encryptFS) getActualPath(path string, isDir bool) string {
 	return filepath.Join(path, name)
 }
 
-func (d *encryptFS) getActualFile(file cloudfs.File) cloudfs.File {
+func (d *encryptFS) getActualFile(file cloudfs.FileInfo) cloudfs.FileInfo {
 	path, name := file.Path(), file.Name()
 
 	if file.IsDir() {
@@ -112,7 +112,8 @@ func (d *encryptFS) getActualFile(file cloudfs.File) cloudfs.File {
 				name = n
 			}
 
-			return cloudfs.NewFile(path, file, func(info *cloudfs.FileInfo) {
+			return cloudfs.NewFileInfo(file, func(info *cloudfs.Entry) {
+				info.Path = path
 				info.Name = name
 			})
 		}
@@ -131,12 +132,13 @@ func (d *encryptFS) getActualFile(file cloudfs.File) cloudfs.File {
 	} else if d.opt.Suffix != "" {
 		name = strings.TrimSuffix(name, d.opt.Suffix)
 	}
-	return cloudfs.NewFile(path, file, func(info *cloudfs.FileInfo) {
+	return cloudfs.NewFileInfo(file, func(info *cloudfs.Entry) {
+		info.Path = path
 		info.Name = name
 	})
 }
 
-func (d *encryptFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *encryptFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	// 加密目录名称
 	actualPath := d.getActualPath(path, true)
 
@@ -151,7 +153,7 @@ func (d *encryptFS) List(ctx context.Context, path string, opts ...cloudfs.ListO
 	return files, nil
 }
 
-func (d *encryptFS) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *encryptFS) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	// 不知道path是文件还是目录，所以请求两次
 	file, err := d.FS.Stat(ctx, d.getActualPath(path, true))
 	if err != nil {
@@ -166,7 +168,7 @@ func (d *encryptFS) Stat(ctx context.Context, path string) (cloudfs.File, error)
 	return d.getActualFile(file), nil
 }
 
-func (d *encryptFS) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *encryptFS) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	actualPath := d.getActualPath(path, false)
 
 	info, err := d.FS.Stat(ctx, actualPath)
@@ -189,7 +191,7 @@ func (d *encryptFS) Open(ctx context.Context, path string) (cloudfs.FileReader, 
 		}
 		return dr, nil
 	}
-	return cloudfs.NewFileReader(info.Size(), rangeFunc)
+	return cloudfs.NewFile(info.Size(), rangeFunc)
 }
 
 func (d *encryptFS) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {

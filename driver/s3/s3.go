@@ -52,14 +52,14 @@ func (d *S3) getPath(path string, isDir bool) string {
 	return path
 }
 
-func (d *S3) listV2(ctx context.Context, path string, _opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *S3) listV2(ctx context.Context, path string, _opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	input := &s3.ListObjectsV2Input{
 		Bucket:    aws.String(d.opt.Bucket),
 		Prefix:    aws.String(d.getPath(path, true)),
 		Delimiter: aws.String("/"),
 	}
 
-	files := make([]cloudfs.File, 0)
+	files := make([]cloudfs.FileInfo, 0)
 	for {
 		result, err := d.client.ListObjectsV2WithContext(ctx, input)
 		if err != nil {
@@ -68,7 +68,7 @@ func (d *S3) listV2(ctx context.Context, path string, _opts ...cloudfs.ListOptio
 
 		// 处理目录
 		for _, object := range result.CommonPrefixes {
-			files = append(files, cloudfs.NewFile(path, &dirinfo{object}))
+			files = append(files, cloudfs.NewFileInfo(&dirinfo{object}, func(info *cloudfs.Entry) { info.Path = path }))
 		}
 
 		// 处理文件
@@ -76,7 +76,7 @@ func (d *S3) listV2(ctx context.Context, path string, _opts ...cloudfs.ListOptio
 			if *input.Prefix == *object.Key {
 				continue
 			}
-			files = append(files, cloudfs.NewFile(path, &fileinfo{object}))
+			files = append(files, cloudfs.NewFileInfo(&fileinfo{object}, func(info *cloudfs.Entry) { info.Path = path }))
 		}
 
 		if result.IsTruncated != nil && *result.IsTruncated {
@@ -88,7 +88,7 @@ func (d *S3) listV2(ctx context.Context, path string, _opts ...cloudfs.ListOptio
 	return files, nil
 }
 
-func (d *S3) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *S3) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	if d.opt.ListVersion == "v2" {
 		return d.listV2(ctx, path, opts...)
 	}
@@ -98,7 +98,7 @@ func (d *S3) List(ctx context.Context, path string, opts ...cloudfs.ListOption) 
 		Delimiter: aws.String("/"),
 	}
 
-	files := make([]cloudfs.File, 0)
+	files := make([]cloudfs.FileInfo, 0)
 	for {
 		result, err := d.client.ListObjectsWithContext(ctx, input)
 		if err != nil {
@@ -107,7 +107,7 @@ func (d *S3) List(ctx context.Context, path string, opts ...cloudfs.ListOption) 
 
 		// 处理目录
 		for _, object := range result.CommonPrefixes {
-			files = append(files, cloudfs.NewFile(path, &dirinfo{object}))
+			files = append(files, cloudfs.NewFileInfo(&dirinfo{object}, func(info *cloudfs.Entry) { info.Path = path }))
 		}
 
 		// 处理文件
@@ -115,7 +115,7 @@ func (d *S3) List(ctx context.Context, path string, opts ...cloudfs.ListOption) 
 			if *input.Prefix == *object.Key {
 				continue
 			}
-			files = append(files, cloudfs.NewFile(path, &fileinfo{object}))
+			files = append(files, cloudfs.NewFileInfo(&fileinfo{object}, func(info *cloudfs.Entry) { info.Path = path }))
 		}
 
 		if result.IsTruncated != nil && *result.IsTruncated {
@@ -234,7 +234,7 @@ func (d *S3) MakeDir(ctx context.Context, path string) error {
 	return err
 }
 
-func (d *S3) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *S3) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	result, err := d.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(d.opt.Bucket),
 		Key:    aws.String(d.getPath(path, false)),
@@ -264,7 +264,7 @@ func (d *S3) Open(ctx context.Context, path string) (cloudfs.FileReader, error) 
 	if result.ContentLength != nil {
 		length = *result.ContentLength
 	}
-	return cloudfs.NewFileReader(length, rangeFunc)
+	return cloudfs.NewFile(length, rangeFunc)
 }
 
 func (d *S3) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
@@ -282,7 +282,7 @@ func (d *S3) Create(ctx context.Context, path string) (cloudfs.FileWriter, error
 	return w, nil
 }
 
-func (d *S3) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *S3) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	result, err := d.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(d.opt.Bucket),
 		Key:    aws.String(d.getPath(path, false)),
@@ -304,12 +304,15 @@ func (d *S3) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 					name:  filepath.Base(path),
 					isDir: true,
 				}
-				return cloudfs.NewFile(filepath.Dir(path), info), nil
+				return cloudfs.NewFileInfo(info, func(info *cloudfs.Entry) { info.Path = filepath.Dir(path) }), nil
 			}
 		}
 		return nil, err
 	}
-	return cloudfs.NewFile(filepath.Dir(path), &headinfo{name: filepath.Base(path), info: result}), nil
+	return cloudfs.NewFileInfo(
+		&headinfo{name: filepath.Base(path), info: result},
+		func(info *cloudfs.Entry) { info.Path = filepath.Dir(path) },
+	), nil
 }
 
 func New(opt *Option) (cloudfs.FS, error) {

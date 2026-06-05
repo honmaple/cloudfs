@@ -75,7 +75,7 @@ func (d *Openlist) requestWithData(ctx context.Context, method, url string, data
 	return io.ReadAll(r)
 }
 
-func (d *Openlist) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *Openlist) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	meta := cloudfs.ListOptions(opts...)
 
 	resp, err := d.requestWithData(ctx, http.MethodPost, "/api/fs/list", map[string]any{
@@ -90,9 +90,9 @@ func (d *Openlist) List(ctx context.Context, path string, opts ...cloudfs.ListOp
 	}
 	results := gjson.ParseBytes(resp).Get("data.content").Array()
 
-	files := make([]cloudfs.File, len(results))
+	files := make([]cloudfs.FileInfo, len(results))
 	for i, result := range results {
-		files[i] = cloudfs.NewFile(path, &fileinfo{result})
+		files[i] = cloudfs.NewFileInfo(&fileinfo{result}, func(info *cloudfs.Entry) { info.Path = path })
 	}
 	return files, nil
 }
@@ -138,7 +138,7 @@ func (d *Openlist) MakeDir(ctx context.Context, path string) error {
 	return err
 }
 
-func (d *Openlist) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *Openlist) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	resp, err := d.requestWithData(ctx, http.MethodPost, "/api/fs/get", map[string]any{
 		"path":     path,
 		"password": "",
@@ -154,10 +154,10 @@ func (d *Openlist) Stat(ctx context.Context, path string) (cloudfs.File, error) 
 		}
 		return nil, errors.New(msg)
 	}
-	return cloudfs.NewFile(filepath.Dir(path), &fileinfo{result.Get("data")}), nil
+	return cloudfs.NewFileInfo(&fileinfo{result.Get("data")}, func(info *cloudfs.Entry) { info.Path = filepath.Dir(path) }), nil
 }
 
-func (d *Openlist) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *Openlist) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	resp, err := d.requestWithData(ctx, http.MethodPost, "/api/fs/get", map[string]any{
 		"path":     path,
 		"password": "",
@@ -181,7 +181,7 @@ func (d *Openlist) Open(ctx context.Context, path string) (cloudfs.FileReader, e
 			}
 		}))
 	}
-	return cloudfs.NewFileReader(result.Get("data.size").Int(), rangeFunc)
+	return cloudfs.NewFile(result.Get("data.size").Int(), rangeFunc)
 }
 
 func (d *Openlist) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {

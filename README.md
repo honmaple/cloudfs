@@ -144,6 +144,9 @@ err = fs.Copy(ctx, "/new-dir/new-name.txt", "/")
 err = fs.Remove(ctx, "/new-dir/new-name.txt")
 ```
 
+`List` and `Stat` return `cloudfs.FileInfo`, which follows `io/fs.FileInfo`
+and adds `Path()`, `Type()`, and `ExtraInfo()` for driver-specific metadata.
+
 Reading supports `io.Reader`, `io.Seeker`, and `io.Closer`:
 
 ```go

@@ -11,7 +11,7 @@ import (
 
 type HookOption struct {
 	PathFn func(string) string
-	FileFn func(cloudfs.File) (cloudfs.File, bool)
+	FileFn func(cloudfs.FileInfo) (cloudfs.FileInfo, bool)
 }
 
 func (opt *HookOption) NewFS(fs cloudfs.FS) (cloudfs.FS, error) {
@@ -33,14 +33,14 @@ func (d *hookFS) getActualPath(path string) string {
 	return d.opt.PathFn(path)
 }
 
-func (d *hookFS) getActualFile(file cloudfs.File) (cloudfs.File, bool) {
+func (d *hookFS) getActualFile(file cloudfs.FileInfo) (cloudfs.FileInfo, bool) {
 	if d.opt.FileFn == nil {
 		return file, true
 	}
 	return d.opt.FileFn(file)
 }
 
-func (d *hookFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *hookFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	files, err := d.FS.List(ctx, d.getActualPath(path), opts...)
 	if err != nil {
 		return nil, err
@@ -49,7 +49,7 @@ func (d *hookFS) List(ctx context.Context, path string, opts ...cloudfs.ListOpti
 		return files, nil
 	}
 
-	newFiles := make([]cloudfs.File, 0, len(files))
+	newFiles := make([]cloudfs.FileInfo, 0, len(files))
 	for _, file := range files {
 		newFile, ok := d.getActualFile(file)
 		if !ok {
@@ -60,7 +60,7 @@ func (d *hookFS) List(ctx context.Context, path string, opts ...cloudfs.ListOpti
 	return newFiles, nil
 }
 
-func (d *hookFS) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *hookFS) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	file, err := d.FS.Stat(ctx, d.getActualPath(path))
 	if err != nil {
 		return nil, err
@@ -70,7 +70,7 @@ func (d *hookFS) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	return newFile, nil
 }
 
-func (d *hookFS) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *hookFS) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	return d.FS.Open(ctx, d.getActualPath(path))
 }
 
@@ -115,8 +115,8 @@ func PrefixFS(prefix string) cloudfs.WrapFunc {
 			PathFn: func(path string) string {
 				return filepath.Join(prefix, path)
 			},
-			FileFn: func(file cloudfs.File) (cloudfs.File, bool) {
-				return cloudfs.NewFile(strings.TrimPrefix(file.Path(), prefix), file), true
+			FileFn: func(file cloudfs.FileInfo) (cloudfs.FileInfo, bool) {
+				return cloudfs.NewFileInfo(file, func(info *cloudfs.Entry) { info.Path = strings.TrimPrefix(file.Path(), prefix) }), true
 			},
 		}
 		return newHookFS(fs, opt), nil
@@ -132,8 +132,8 @@ func TrimPrefixFS(fs cloudfs.FS, prefix string) cloudfs.WrapFunc {
 			PathFn: func(path string) string {
 				return strings.TrimPrefix(path, prefix)
 			},
-			FileFn: func(file cloudfs.File) (cloudfs.File, bool) {
-				return cloudfs.NewFile(filepath.Join(prefix, file.Path()), file), true
+			FileFn: func(file cloudfs.FileInfo) (cloudfs.FileInfo, bool) {
+				return cloudfs.NewFileInfo(file, func(info *cloudfs.Entry) { info.Path = filepath.Join(prefix, file.Path()) }), true
 			},
 		}
 		return newHookFS(fs, opt), nil

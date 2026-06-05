@@ -160,8 +160,8 @@ func (d *Foxel) requestJSON(ctx context.Context, method, url string, buildOpts f
 	return gjson.Result{}, errors.New("请求失败")
 }
 
-func (d *Foxel) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
-	files := make([]cloudfs.File, 0)
+func (d *Foxel) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+	files := make([]cloudfs.FileInfo, 0)
 
 	pageSize := 500
 	for page := 1; ; page++ {
@@ -181,7 +181,7 @@ func (d *Foxel) List(ctx context.Context, path string, opts ...cloudfs.ListOptio
 
 		entries := data.Get("entries").Array()
 		for _, entry := range entries {
-			files = append(files, cloudfs.NewFile(path, &fileinfo{info: entry}))
+			files = append(files, cloudfs.NewFileInfo(&fileinfo{info: entry}, func(info *cloudfs.Entry) { info.Path = path }))
 		}
 
 		total := data.Get("pagination.total").Int()
@@ -195,15 +195,18 @@ func (d *Foxel) List(ctx context.Context, path string, opts ...cloudfs.ListOptio
 	return files, nil
 }
 
-func (d *Foxel) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *Foxel) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	data, err := d.requestJSON(ctx, http.MethodGet, d.statPath(path), func() []httputil.Option { return nil })
 	if err != nil {
 		return nil, err
 	}
-	return cloudfs.NewFile(filepath.Dir(path), &fileinfo{info: data, name: filepath.Base(path)}), nil
+	return cloudfs.NewFileInfo(
+		&fileinfo{info: data, name: filepath.Base(path)},
+		func(info *cloudfs.Entry) { info.Path = filepath.Dir(path) },
+	), nil
 }
 
-func (d *Foxel) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *Foxel) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	info, err := d.Stat(ctx, path)
 	if err != nil {
 		return nil, err
@@ -244,7 +247,7 @@ func (d *Foxel) Open(ctx context.Context, path string) (cloudfs.FileReader, erro
 		}
 		return nil, errors.New("打开失败")
 	}
-	return cloudfs.NewFileReader(info.Size(), rangeFunc)
+	return cloudfs.NewFile(info.Size(), rangeFunc)
 }
 
 func (d *Foxel) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {

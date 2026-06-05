@@ -38,15 +38,15 @@ func (d *FTP) Close() error {
 	return d.client.Logout()
 }
 
-func (d *FTP) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *FTP) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	info, err := d.client.GetEntry(path)
 	if err != nil {
 		return nil, err
 	}
-	return cloudfs.NewFile(filepath.Dir(path), &fileinfo{info}), nil
+	return cloudfs.NewFileInfo(&fileinfo{info}, func(info *cloudfs.Entry) { info.Path = filepath.Dir(path) }), nil
 }
 
-func (d *FTP) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *FTP) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	info, err := d.client.GetEntry(path)
 	if err != nil {
 		return nil, err
@@ -58,7 +58,7 @@ func (d *FTP) Open(ctx context.Context, path string) (cloudfs.FileReader, error)
 	rangeFunc := func(offset, length int64) (io.ReadCloser, error) {
 		return d.client.RetrFrom(path, uint64(offset))
 	}
-	return cloudfs.NewFileReader(int64(info.Size), rangeFunc)
+	return cloudfs.NewFile(int64(info.Size), rangeFunc)
 }
 
 func (d *FTP) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
@@ -70,15 +70,15 @@ func (d *FTP) Create(ctx context.Context, path string) (cloudfs.FileWriter, erro
 	return w, nil
 }
 
-func (d *FTP) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *FTP) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	entries, err := d.client.List(path)
 	if err != nil {
 		return nil, err
 	}
 
-	files := make([]cloudfs.File, len(entries))
+	files := make([]cloudfs.FileInfo, len(entries))
 	for i, info := range entries {
-		files[i] = cloudfs.NewFile(path, &fileinfo{info})
+		files[i] = cloudfs.NewFileInfo(&fileinfo{info}, func(info *cloudfs.Entry) { info.Path = path })
 	}
 	return files, nil
 }

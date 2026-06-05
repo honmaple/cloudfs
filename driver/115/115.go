@@ -38,7 +38,7 @@ type Pan115 struct {
 
 var _ cloudfs.FS = (*Pan115)(nil)
 
-func (d *Pan115) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *Pan115) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	meta := cloudfs.ListOptions(opts...)
 
 	limit := meta.GetInt64("page_size")
@@ -50,20 +50,21 @@ func (d *Pan115) List(ctx context.Context, path string, opts ...cloudfs.ListOpti
 		return nil, err
 	}
 
-	files := make([]cloudfs.File, 0)
+	files := make([]cloudfs.FileInfo, 0)
 	for _, result := range *results {
-		info := &cloudfs.FileInfo{
-			Path:    path,
+		info := (&cloudfs.Entry{
 			Name:    result.Name,
 			Size:    result.Size,
+			Path:    path,
 			IsDir:   result.IsDirectory,
 			ModTime: result.UpdateTime,
 			ExtraInfo: map[string]any{
 				"id":        result.FileID,
 				"pick_code": result.PickCode,
 			},
-		}
-		files = append(files, info.File())
+			Sys: result,
+		}).FileInfo()
+		files = append(files, info)
 	}
 	return files, nil
 }
@@ -89,25 +90,26 @@ func (d *Pan115) Remove(ctx context.Context, path string) error {
 	return d.client.Delete(path)
 }
 
-func (d *Pan115) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *Pan115) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	result, err := d.client.GetFile(path)
 	if err != nil {
 		return nil, err
 	}
-	info := &cloudfs.FileInfo{
-		Path:    path,
+	info := (&cloudfs.Entry{
 		Name:    result.Name,
 		Size:    result.Size,
+		Path:    path,
 		IsDir:   result.IsDirectory,
 		ModTime: result.UpdateTime,
 		ExtraInfo: map[string]any{
 			"id": result.FileID,
 		},
-	}
-	return info.File(), nil
+		Sys: result,
+	}).FileInfo()
+	return info, nil
 }
 
-func (d *Pan115) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *Pan115) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	result, err := d.client.GetFile(path)
 	if err != nil {
 		return nil, err
@@ -145,7 +147,7 @@ func (d *Pan115) Open(ctx context.Context, path string) (cloudfs.FileReader, err
 		resp.Body.Close()
 		return nil, fmt.Errorf("bad status: %d", resp.StatusCode)
 	}
-	return cloudfs.NewFileReader(result.Size, rangeFunc)
+	return cloudfs.NewFile(result.Size, rangeFunc)
 }
 
 func New(opt *Option) (cloudfs.FS, error) {

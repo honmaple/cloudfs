@@ -80,7 +80,7 @@ func (d *Quark) requestWithData(ctx context.Context, method, url string, data ma
 	return io.ReadAll(r)
 }
 
-func (d *Quark) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *Quark) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	r, err := d.request(ctx, http.MethodGet, "/file/sort", httputil.WithQueryParams(map[string]string{
 		"_page":        "1",
 		"_size":        "50",
@@ -98,25 +98,27 @@ func (d *Quark) List(ctx context.Context, path string, opts ...cloudfs.ListOptio
 		return nil, err
 	}
 
-	files := make([]cloudfs.File, 0)
+	files := make([]cloudfs.FileInfo, 0)
 
 	results := gjson.ParseBytes(resp).Get("data.list").Array()
 	for _, result := range results {
-		info := &cloudfs.FileInfo{
-			Path:    path,
+		isDir := result.Get("dir").Bool()
+		info := &cloudfs.Entry{
 			Name:    result.Get("file_name").String(),
 			Size:    result.Get("size").Int(),
-			IsDir:   result.Get("dir").Bool(),
+			Path:    path,
+			IsDir:   isDir,
 			ModTime: time.UnixMilli(result.Get("updated_at").Int()),
 			ExtraInfo: map[string]any{
 				"id": result.Get("fid").String(),
 				// "preview_url": result.Get("preview_url").String(),
 			},
+			Sys: result.Value(),
 		}
-		if !info.IsDir {
+		if !isDir {
 			info.Type = result.Get("format_type").String()
 		}
-		files = append(files, info.File())
+		files = append(files, info.FileInfo())
 	}
 	return files, nil
 }
@@ -158,7 +160,7 @@ func (d *Quark) Remove(ctx context.Context, path string) error {
 	return err
 }
 
-func (d *Quark) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *Quark) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	resp, err := d.requestWithData(ctx, http.MethodPost, "/file/download", map[string]any{
 		"fids": []string{path},
 	})
@@ -182,7 +184,7 @@ func (d *Quark) Open(ctx context.Context, path string) (cloudfs.FileReader, erro
 			}
 		}))
 	}
-	return cloudfs.NewFileReader(result.Get("size").Int(), rangeFunc)
+	return cloudfs.NewFile(result.Get("size").Int(), rangeFunc)
 }
 
 func New(opt *Option) (cloudfs.FS, error) {

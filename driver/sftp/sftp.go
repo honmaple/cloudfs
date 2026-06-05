@@ -40,15 +40,15 @@ func (d *SFTP) Close() error {
 	return d.client.Close()
 }
 
-func (d *SFTP) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *SFTP) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	info, err := d.client.Stat(path)
 	if err != nil {
 		return nil, err
 	}
-	return cloudfs.NewFile(path, info), nil
+	return cloudfs.NewFileInfo(info, func(info *cloudfs.Entry) { info.Path = path }), nil
 }
 
-func (d *SFTP) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *SFTP) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	return d.client.Open(path)
 }
 
@@ -56,15 +56,15 @@ func (d *SFTP) Create(ctx context.Context, path string) (cloudfs.FileWriter, err
 	return d.client.Create(path)
 }
 
-func (d *SFTP) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *SFTP) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	infos, err := d.client.ReadDir(path)
 	if err != nil {
 		return nil, err
 	}
 
-	files := make([]cloudfs.File, len(infos))
+	files := make([]cloudfs.FileInfo, len(infos))
 	for i, info := range infos {
-		files[i] = cloudfs.NewFile(path, info)
+		files[i] = cloudfs.NewFileInfo(info, func(info *cloudfs.Entry) { info.Path = path })
 	}
 	return files, nil
 }

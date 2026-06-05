@@ -190,7 +190,7 @@ func (d *OneDrive) resolveParent(ctx context.Context, path string) (*driveItem, 
 	return parent, filepath.Base(path), nil
 }
 
-func (d *OneDrive) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *OneDrive) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	parent, err := d.resolve(ctx, path)
 	if err != nil {
 		return nil, err
@@ -202,7 +202,7 @@ func (d *OneDrive) List(ctx context.Context, path string, opts ...cloudfs.ListOp
 	if err != nil {
 		return nil, err
 	}
-	files := make([]cloudfs.File, len(items))
+	files := make([]cloudfs.FileInfo, len(items))
 	for i := range items {
 		files[i] = newFile(path, &items[i])
 	}
@@ -297,7 +297,7 @@ func (d *OneDrive) MakeDir(ctx context.Context, path string) error {
 	return d.requestJSON(ctx, http.MethodPost, d.itemURL(parent.ID)+"/children", body, nil)
 }
 
-func (d *OneDrive) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *OneDrive) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	item, err := d.resolve(ctx, path)
 	if err != nil {
 		return nil, err
@@ -305,7 +305,7 @@ func (d *OneDrive) Stat(ctx context.Context, path string) (cloudfs.File, error) 
 	return newFile(filepath.Dir(pathutil.CleanPath(path)), item), nil
 }
 
-func (d *OneDrive) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *OneDrive) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	item, err := d.resolve(ctx, path)
 	if err != nil {
 		return nil, err
@@ -326,7 +326,7 @@ func (d *OneDrive) Open(ctx context.Context, path string) (cloudfs.FileReader, e
 		}
 		return resp.Body, nil
 	}
-	return cloudfs.NewFileReader(item.Size, rangeFunc)
+	return cloudfs.NewFile(item.Size, rangeFunc)
 }
 
 func (d *OneDrive) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {

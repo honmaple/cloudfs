@@ -37,39 +37,39 @@ func (d *Local) getActualPath(path string) string {
 	return filepath.Join(d.opt.Path, filepath.FromSlash(path))
 }
 
-func (d *Local) getActualFile(file cloudfs.File) cloudfs.File {
+func (d *Local) getActualFile(file cloudfs.FileInfo) cloudfs.FileInfo {
 	if runtime.GOOS != "windows" {
 		return file
 	}
-	return cloudfs.NewFile(filepath.ToSlash(file.Path()), file)
+	return cloudfs.NewFileInfo(file, func(info *cloudfs.Entry) { info.Path = filepath.ToSlash(file.Path()) })
 }
 
-func (d *Local) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *Local) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	entries, err := os.ReadDir(d.getActualPath(path))
 	if err != nil {
 		return nil, err
 	}
 
-	files := make([]cloudfs.File, len(entries))
+	files := make([]cloudfs.FileInfo, len(entries))
 	for i, entry := range entries {
 		info, err := entry.Info()
 		if err != nil {
 			return nil, err
 		}
-		files[i] = d.getActualFile(cloudfs.NewFile(path, info))
+		files[i] = d.getActualFile(cloudfs.NewFileInfo(info, func(info *cloudfs.Entry) { info.Path = path }))
 	}
 	return files, nil
 }
 
-func (d *Local) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *Local) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	info, err := os.Stat(d.getActualPath(path))
 	if err != nil {
 		return nil, err
 	}
-	return d.getActualFile(cloudfs.NewFile(filepath.Dir(path), info)), nil
+	return d.getActualFile(cloudfs.NewFileInfo(info, func(info *cloudfs.Entry) { info.Path = filepath.Dir(path) })), nil
 }
 
-func (d *Local) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *Local) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	return os.Open(d.getActualPath(path))
 }
 

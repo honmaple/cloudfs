@@ -59,7 +59,7 @@ func (d *Github) request(ctx context.Context, method, url string, opts ...httput
 	return nil, fmt.Errorf("bad status: %d", resp.StatusCode)
 }
 
-func (d *Github) download(ctx context.Context, url string, size int64) (cloudfs.FileReader, error) {
+func (d *Github) download(ctx context.Context, url string, size int64) (cloudfs.File, error) {
 	if url == "" {
 		return nil, errors.New("no download url")
 	}
@@ -72,7 +72,7 @@ func (d *Github) download(ctx context.Context, url string, size int64) (cloudfs.
 			}
 		}))
 	}
-	return cloudfs.NewFileReader(size, rangeFunc)
+	return cloudfs.NewFile(size, rangeFunc)
 }
 
 func (d *Github) splitPath(path string) (string, string) {
@@ -105,7 +105,17 @@ func (d *Github) getActualPath(path string) (string, string, string) {
 	return repo, ref, path
 }
 
-func (d *Github) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func newFileInfo(path, name string, size int64, isDir bool, modTime time.Time) cloudfs.FileInfo {
+	return (&cloudfs.Entry{
+		Name:    name,
+		Size:    size,
+		Path:    path,
+		IsDir:   isDir,
+		ModTime: modTime,
+	}).FileInfo()
+}
+
+func (d *Github) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	repo, ref, actualPath := d.getActualPath(path)
 	if repo == "" {
 		return nil, fmt.Errorf("can't stat %s", path)
@@ -118,25 +128,12 @@ func (d *Github) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 			return nil, err
 		}
 
-		info := &cloudfs.FileInfo{
-			Path:    path,
-			Name:    result.GetName(),
-			Size:    int64(result.GetSize()),
-			IsDir:   true,
-			ModTime: result.GetUpdatedAt().Time,
-		}
-		return info.File(), nil
+		return newFileInfo(path, result.GetName(), int64(result.GetSize()), true, result.GetUpdatedAt().Time), nil
 	}
 
 	// 获取分支信息
 	if actualPath == "/" {
-		info := &cloudfs.FileInfo{
-			Path:    path,
-			Name:    ref,
-			IsDir:   true,
-			ModTime: time.Now(),
-		}
-		return info.File(), nil
+		return newFileInfo(path, ref, 0, true, time.Now()), nil
 	}
 
 	dir, filename := filepath.Dir(actualPath), filepath.Base(actualPath)
@@ -151,19 +148,12 @@ func (d *Github) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 		if result.GetName() != filename {
 			continue
 		}
-		info := &cloudfs.FileInfo{
-			Path:    path,
-			Name:    result.GetName(),
-			Size:    int64(result.GetSize()),
-			IsDir:   result.GetType() == "dir",
-			ModTime: time.Now(),
-		}
-		return info.File(), nil
+		return newFileInfo(path, result.GetName(), int64(result.GetSize()), result.GetType() == "dir", time.Now()), nil
 	}
 	return nil, fmt.Errorf("no file named %s found in %s", filename, dir)
 }
 
-func (d *Github) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *Github) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	repo, ref, actualPath := d.getActualPath(path)
 	if repo == "" || actualPath == "/" {
 		return nil, fmt.Errorf("can't open %s", path)
@@ -186,11 +176,11 @@ func (d *Github) Open(ctx context.Context, path string) (cloudfs.FileReader, err
 	return nil, fmt.Errorf("no file named %s found in %s", filename, dir)
 }
 
-func (d *Github) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *Github) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	repo, ref, actualPath := d.getActualPath(path)
 
 	if repo == "" {
-		files := make([]cloudfs.File, 0)
+		files := make([]cloudfs.FileInfo, 0)
 		for i := 1; ; i++ {
 			opts := &github.RepositoryListByUserOptions{
 				ListOptions: github.ListOptions{
@@ -203,14 +193,7 @@ func (d *Github) List(ctx context.Context, path string, opts ...cloudfs.ListOpti
 				return nil, err
 			}
 			for _, result := range results {
-				info := &cloudfs.FileInfo{
-					Path:    path,
-					Name:    result.GetName(),
-					Size:    int64(result.GetSize()),
-					IsDir:   true,
-					ModTime: result.GetUpdatedAt().Time,
-				}
-				files = append(files, info.File())
+				files = append(files, newFileInfo(path, result.GetName(), int64(result.GetSize()), true, result.GetUpdatedAt().Time))
 			}
 			if len(results) < 100 {
 				break
@@ -220,7 +203,7 @@ func (d *Github) List(ctx context.Context, path string, opts ...cloudfs.ListOpti
 	}
 
 	if ref == "" && (d.opt.ShowBranch || d.opt.ShowTag) {
-		files := make([]cloudfs.File, 0)
+		files := make([]cloudfs.FileInfo, 0)
 
 		if d.opt.ShowBranch {
 			for i := 1; ; i++ {
@@ -236,13 +219,7 @@ func (d *Github) List(ctx context.Context, path string, opts ...cloudfs.ListOpti
 				}
 				for _, result := range results {
 					// 分支名称可能包括路径分隔符
-					info := &cloudfs.FileInfo{
-						Path:    path,
-						Name:    url.PathEscape(result.GetName()),
-						IsDir:   true,
-						ModTime: time.Now(),
-					}
-					files = append(files, info.File())
+					files = append(files, newFileInfo(path, url.PathEscape(result.GetName()), 0, true, time.Now()))
 				}
 				if len(results) < 100 {
 					break
@@ -261,13 +238,7 @@ func (d *Github) List(ctx context.Context, path string, opts ...cloudfs.ListOpti
 					return nil, err
 				}
 				for _, result := range results {
-					info := &cloudfs.FileInfo{
-						Path:    path,
-						Name:    url.PathEscape(result.GetName()),
-						IsDir:   true,
-						ModTime: time.Now(),
-					}
-					files = append(files, info.File())
+					files = append(files, newFileInfo(path, url.PathEscape(result.GetName()), 0, true, time.Now()))
 				}
 				if len(results) < 100 {
 					break
@@ -286,26 +257,12 @@ func (d *Github) List(ctx context.Context, path string, opts ...cloudfs.ListOpti
 		return nil, err
 	}
 	if fc != nil {
-		info := &cloudfs.FileInfo{
-			Path:    path,
-			Name:    fc.GetName(),
-			Size:    int64(fc.GetSize()),
-			IsDir:   fc.GetType() == "dir",
-			ModTime: time.Now(),
-		}
-		return []cloudfs.File{info.File()}, nil
+		return []cloudfs.FileInfo{newFileInfo(path, fc.GetName(), int64(fc.GetSize()), fc.GetType() == "dir", time.Now())}, nil
 	}
 
-	files := make([]cloudfs.File, len(dc))
+	files := make([]cloudfs.FileInfo, len(dc))
 	for i, result := range dc {
-		info := &cloudfs.FileInfo{
-			Path:    path,
-			Name:    result.GetName(),
-			Size:    int64(result.GetSize()),
-			IsDir:   result.GetType() == "dir",
-			ModTime: time.Now(),
-		}
-		files[i] = info.File()
+		files[i] = newFileInfo(path, result.GetName(), int64(result.GetSize()), result.GetType() == "dir", time.Now())
 	}
 	return files, nil
 }

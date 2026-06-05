@@ -166,7 +166,7 @@ func (d *GoogleDrive) updateFile(ctx context.Context, id string, info *drive.Fil
 	return call.Context(ctx).Do()
 }
 
-func (d *GoogleDrive) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *GoogleDrive) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	parent, err := d.resolve(ctx, path)
 	if err != nil {
 		return nil, err
@@ -181,7 +181,7 @@ func (d *GoogleDrive) List(ctx context.Context, path string, opts ...cloudfs.Lis
 		return nil, err
 	}
 
-	result := make([]cloudfs.File, len(files))
+	result := make([]cloudfs.FileInfo, len(files))
 	for i, file := range files {
 		result[i] = newFile(path, file)
 	}
@@ -283,7 +283,7 @@ func (d *GoogleDrive) MakeDir(ctx context.Context, path string) error {
 	return err
 }
 
-func (d *GoogleDrive) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *GoogleDrive) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	file, err := d.resolve(ctx, path)
 	if err != nil {
 		return nil, err
@@ -291,7 +291,7 @@ func (d *GoogleDrive) Stat(ctx context.Context, path string) (cloudfs.File, erro
 	return newFile(filepath.Dir(pathutil.CleanPath(path)), file), nil
 }
 
-func (d *GoogleDrive) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *GoogleDrive) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	file, err := d.resolve(ctx, path)
 	if err != nil {
 		return nil, err
@@ -323,7 +323,7 @@ func (d *GoogleDrive) Open(ctx context.Context, path string) (cloudfs.FileReader
 		}
 		return resp.Body, nil
 	}
-	return cloudfs.NewFileReader(size, rangeFunc)
+	return cloudfs.NewFile(size, rangeFunc)
 }
 
 func (d *GoogleDrive) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {

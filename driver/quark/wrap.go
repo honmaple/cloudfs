@@ -13,7 +13,7 @@ import (
 
 type wrapFS struct {
 	cloudfs.FS
-	cache *expirable.LRU[string, cloudfs.File]
+	cache *expirable.LRU[string, cloudfs.FileInfo]
 }
 
 var _ cloudfs.FS = (*wrapFS)(nil)
@@ -34,7 +34,7 @@ func (d *wrapFS) getActualPath(ctx context.Context, path string) (string, error)
 	return cf.GetString("id"), nil
 }
 
-func (d *wrapFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *wrapFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	actualPath, err := d.getActualPath(ctx, path)
 	if err != nil {
 		return nil, err
@@ -44,11 +44,14 @@ func (d *wrapFS) List(ctx context.Context, path string, opts ...cloudfs.ListOpti
 		return nil, err
 	}
 
-	newFiles := make([]cloudfs.File, len(files))
+	newFiles := make([]cloudfs.FileInfo, len(files))
 	for i, file := range files {
-		newFiles[i] = cloudfs.NewFile(path, file, func(info *cloudfs.FileInfo) {
-			info.ExtraInfo = file.ExtraInfo()
-		})
+		newFiles[i] = cloudfs.NewFileInfo(file,
+			func(info *cloudfs.Entry) {
+				info.Path = path
+				info.ExtraInfo = file.ExtraInfo()
+			},
+		)
 	}
 	return newFiles, nil
 }
@@ -101,7 +104,7 @@ func (d *wrapFS) Remove(ctx context.Context, path string) error {
 	return d.FS.Remove(ctx, actualPath)
 }
 
-func (d *wrapFS) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *wrapFS) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	actualPath, err := d.getActualPath(ctx, path)
 	if err != nil {
 		return nil, err
@@ -117,7 +120,7 @@ func (d *wrapFS) Open(ctx context.Context, path string) (cloudfs.FileReader, err
 //	return d.FS.Create(ctx, actualPath)
 // }
 
-func (d *wrapFS) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *wrapFS) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	// /aaa/bbb/ccc/ddd
 	if path == "/" {
 		return nil, cloudfs.ErrNotSupport
@@ -148,6 +151,6 @@ func WrapFS(fs cloudfs.FS, expireTime time.Duration) cloudfs.FS {
 	}
 	return &wrapFS{
 		FS:    fs,
-		cache: expirable.NewLRU[string, cloudfs.File](0, nil, expireTime*time.Second),
+		cache: expirable.NewLRU[string, cloudfs.FileInfo](0, nil, expireTime*time.Second),
 	}
 }

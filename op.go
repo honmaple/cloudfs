@@ -10,7 +10,7 @@ import (
 )
 
 type (
-	WalkDirFunc func(string, File, error) error
+	WalkDirFunc func(string, FileInfo, error) error
 )
 
 func CopyFile(ctx context.Context, srcFS FS, src, dst string) error {
@@ -87,7 +87,7 @@ func Copy(ctx context.Context, srcFS FS, src, dst string, opts ...map[string]any
 	return CopyFile(ctx, srcFS, src, dst)
 }
 
-func walkDir(ctx context.Context, srcFS FS, root string, d File, walkDirFn WalkDirFunc) error {
+func walkDir(ctx context.Context, srcFS FS, root string, d FileInfo, walkDirFn WalkDirFunc) error {
 	if err := walkDirFn(root, d, nil); err != nil || !d.IsDir() {
 		if err == fs.SkipDir && d.IsDir() {
 			err = nil

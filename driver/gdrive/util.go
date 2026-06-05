@@ -44,13 +44,16 @@ func parseTime(value string) time.Time {
 	return t
 }
 
-func newFile(path string, info *drive.File) cloudfs.File {
-	return cloudfs.NewFile(path, &fileinfo{info: info}, func(fi *cloudfs.FileInfo) {
-		fi.Type = info.MimeType
-		fi.ExtraInfo = map[string]any{
-			"id":        info.Id,
-			"mime_type": info.MimeType,
-			"parents":   info.Parents,
-		}
-	})
+func newFile(path string, info *drive.File) cloudfs.FileInfo {
+	return cloudfs.NewFileInfo(&fileinfo{info: info},
+		func(entry *cloudfs.Entry) {
+			entry.Path = path
+			entry.Type = info.MimeType
+			entry.ExtraInfo = map[string]any{
+				"id":        info.Id,
+				"mime_type": info.MimeType,
+				"parents":   info.Parents,
+			}
+		},
+	)
 }

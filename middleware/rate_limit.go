@@ -43,7 +43,7 @@ func (d *rateLimiteFS) checkLimit(ctx context.Context) error {
 	return nil
 }
 
-func (d *rateLimiteFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *rateLimiteFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	if err := d.checkLimit(ctx); err != nil {
 		return nil, err
 	}
@@ -85,14 +85,14 @@ func (d *rateLimiteFS) MakeDir(ctx context.Context, path string) error {
 	return d.FS.MakeDir(ctx, path)
 }
 
-func (d *rateLimiteFS) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *rateLimiteFS) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	if err := d.checkLimit(ctx); err != nil {
 		return nil, err
 	}
 	return d.FS.Stat(ctx, path)
 }
 
-func (d *rateLimiteFS) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *rateLimiteFS) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	if err := d.checkLimit(ctx); err != nil {
 		return nil, err
 	}

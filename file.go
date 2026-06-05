@@ -11,61 +11,19 @@ import (
 
 type (
 	File interface {
-		fs.FileInfo
-		Type() string
-		Path() string
-		ExtraInfo() map[string]any
-	}
-	FileReader interface {
 		io.Seeker
 		io.ReadCloser
 	}
 	FileWriter interface {
 		io.WriteCloser
 	}
+	FileInfo interface {
+		fs.FileInfo
+		Type() string
+		Path() string
+		ExtraInfo() map[string]any
+	}
 )
-
-type FileInfo struct {
-	Name      string         `json:"name"`
-	Type      string         `json:"type"`
-	Size      int64          `json:"size"`
-	Path      string         `json:"path"`
-	Mode      fs.FileMode    `json:"mode"`
-	IsDir     bool           `json:"is_dir"`
-	ModTime   time.Time      `json:"mod_time"`
-	ExtraInfo map[string]any `json:"extra_info"`
-}
-
-func (info *FileInfo) File() File {
-	if info.Path == "" || info.Path == "." {
-		info.Path = "/"
-	}
-	return &emptyFile{
-		FileInfo: *info,
-	}
-}
-
-type emptyFile struct {
-	FileInfo
-}
-
-func (f *emptyFile) Type() string {
-	if f.FileInfo.Type != "" {
-		return f.FileInfo.Type
-	}
-	if f.FileInfo.IsDir {
-		return "DIR"
-	}
-	return mime.TypeByExtension(filepath.Ext(f.FileInfo.Name))
-}
-func (f *emptyFile) Path() string              { return f.FileInfo.Path }
-func (f *emptyFile) Name() string              { return f.FileInfo.Name }
-func (f *emptyFile) Size() int64               { return f.FileInfo.Size }
-func (f *emptyFile) Mode() fs.FileMode         { return f.FileInfo.Mode }
-func (f *emptyFile) IsDir() bool               { return f.FileInfo.IsDir }
-func (f *emptyFile) ModTime() time.Time        { return f.FileInfo.ModTime }
-func (f *emptyFile) Sys() any                  { return nil }
-func (f *emptyFile) ExtraInfo() map[string]any { return f.FileInfo.ExtraInfo }
 
 type seeker struct {
 	r            io.ReadCloser
@@ -135,27 +93,81 @@ func (s *seeker) Close() error {
 	return nil
 }
 
-func NewFile(path string, info fs.FileInfo, opts ...func(*FileInfo)) File {
-	if path == "" || path == "." {
-		path = "/"
+type Entry struct {
+	Name      string
+	Type      string
+	Size      int64
+	Path      string
+	Mode      fs.FileMode
+	IsDir     bool
+	ModTime   time.Time
+	ExtraInfo map[string]any
+	Sys       any
+}
+
+func (f *Entry) FileInfo() FileInfo {
+	if f.Path == "" || f.Path == "." {
+		f.Path = "/"
 	}
-	fi := &FileInfo{
-		Path:    path,
+	return &fileInfo{
+		name:      f.Name,
+		typ:       f.Type,
+		size:      f.Size,
+		path:      f.Path,
+		mode:      f.Mode,
+		isDir:     f.IsDir,
+		modTime:   f.ModTime,
+		extraInfo: f.ExtraInfo,
+		sys:       f.Sys,
+	}
+}
+
+type fileInfo struct {
+	name      string
+	typ       string
+	size      int64
+	path      string
+	mode      fs.FileMode
+	isDir     bool
+	modTime   time.Time
+	extraInfo map[string]any
+	sys       any
+}
+
+func (f *fileInfo) Type() string {
+	if f.typ != "" {
+		return f.typ
+	}
+	if f.isDir {
+		return "DIR"
+	}
+	return mime.TypeByExtension(filepath.Ext(f.name))
+}
+func (f *fileInfo) Path() string              { return f.path }
+func (f *fileInfo) Name() string              { return f.name }
+func (f *fileInfo) Size() int64               { return f.size }
+func (f *fileInfo) Mode() fs.FileMode         { return f.mode }
+func (f *fileInfo) IsDir() bool               { return f.isDir }
+func (f *fileInfo) ModTime() time.Time        { return f.modTime }
+func (f *fileInfo) Sys() any                  { return f.sys }
+func (f *fileInfo) ExtraInfo() map[string]any { return f.extraInfo }
+
+func NewFileInfo(info fs.FileInfo, opts ...func(*Entry)) FileInfo {
+	fi := &Entry{
 		Name:    info.Name(),
 		Size:    info.Size(),
 		Mode:    info.Mode(),
 		ModTime: info.ModTime(),
 		IsDir:   info.IsDir(),
+		Sys:     info.Sys(),
 	}
 	for _, opt := range opts {
 		opt(fi)
 	}
-	return &emptyFile{
-		FileInfo: *fi,
-	}
+	return fi.FileInfo()
 }
 
-func NewFileReader(size int64, rangeFunc func(int64, int64) (io.ReadCloser, error)) (FileReader, error) {
+func NewFile(size int64, rangeFunc func(int64, int64) (io.ReadCloser, error)) (File, error) {
 	return &seeker{
 		size:      size,
 		rangeFunc: rangeFunc,

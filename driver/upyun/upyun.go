@@ -31,7 +31,7 @@ type Upyun struct {
 
 var _ cloudfs.FS = (*Upyun)(nil)
 
-func (d *Upyun) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *Upyun) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	errs := make(chan error, 1)
 	defer close(errs)
 
@@ -43,9 +43,9 @@ func (d *Upyun) List(ctx context.Context, path string, opts ...cloudfs.ListOptio
 		})
 	}()
 
-	files := make([]cloudfs.File, 0)
+	files := make([]cloudfs.FileInfo, 0)
 	for info := range infos {
-		files = append(files, cloudfs.NewFile(path, &fileinfo{info}))
+		files = append(files, cloudfs.NewFileInfo(&fileinfo{info}, func(info *cloudfs.Entry) { info.Path = path }))
 	}
 
 	if err := <-errs; err != nil {
@@ -86,15 +86,15 @@ func (d *Upyun) MakeDir(ctx context.Context, path string) error {
 	return d.client.Mkdir(path)
 }
 
-func (d *Upyun) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *Upyun) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	info, err := d.client.GetInfo(path)
 	if err != nil {
 		return nil, err
 	}
-	return cloudfs.NewFile(filepath.Dir(path), &fileinfo{info}), nil
+	return cloudfs.NewFileInfo(&fileinfo{info}, func(info *cloudfs.Entry) { info.Path = filepath.Dir(path) }), nil
 }
 
-func (d *Upyun) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *Upyun) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	info, err := d.client.GetInfo(path)
 	if err != nil {
 		return nil, err
@@ -119,7 +119,7 @@ func (d *Upyun) Open(ctx context.Context, path string) (cloudfs.FileReader, erro
 		}()
 		return r, nil
 	}
-	return cloudfs.NewFileReader(info.Size, rangeFunc)
+	return cloudfs.NewFile(info.Size, rangeFunc)
 }
 
 func (d *Upyun) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {

@@ -34,15 +34,15 @@ type Webdav struct {
 
 var _ cloudfs.FS = (*Webdav)(nil)
 
-func (d *Webdav) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {
+func (d *Webdav) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	infos, err := d.client.ReadDir(path)
 	if err != nil {
 		return nil, err
 	}
 
-	files := make([]cloudfs.File, len(infos))
+	files := make([]cloudfs.FileInfo, len(infos))
 	for i, info := range infos {
-		files[i] = cloudfs.NewFile(path, info)
+		files[i] = cloudfs.NewFileInfo(info, func(info *cloudfs.Entry) { info.Path = path })
 	}
 	return files, nil
 }
@@ -83,7 +83,7 @@ func (d *Webdav) MakeDir(ctx context.Context, path string) error {
 	return d.client.MkdirAll(path, d.opt.DirPerm)
 }
 
-func (d *Webdav) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+func (d *Webdav) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	info, err := d.client.Stat(path)
 	if err != nil {
 		return nil, err
@@ -92,7 +92,7 @@ func (d *Webdav) Open(ctx context.Context, path string) (cloudfs.FileReader, err
 	rangeFunc := func(offset, length int64) (io.ReadCloser, error) {
 		return d.client.ReadStreamRange(path, offset, length)
 	}
-	return cloudfs.NewFileReader(info.Size(), rangeFunc)
+	return cloudfs.NewFile(info.Size(), rangeFunc)
 
 }
 
@@ -104,7 +104,7 @@ func (d *Webdav) Create(ctx context.Context, path string) (cloudfs.FileWriter, e
 	return w, nil
 }
 
-func (d *Webdav) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *Webdav) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	fi, err := d.client.Stat(path)
 	if err != nil {
 		rawErr := cloudfs.UnderlyingError(err)
@@ -119,7 +119,10 @@ func (d *Webdav) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 		return nil, err
 	}
 	// 绿联webdav stat无法获取文件名
-	return cloudfs.NewFile(filepath.Dir(path), &fileinfo{FileInfo: fi, name: filepath.Base(path)}), nil
+	return cloudfs.NewFileInfo(
+		&fileinfo{FileInfo: fi, name: filepath.Base(path)},
+		func(info *cloudfs.Entry) { info.Path = filepath.Dir(path) },
+	), nil
 }
 
 func (d *Webdav) Close() error {

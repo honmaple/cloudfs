@@ -59,19 +59,23 @@ func parseTime(value string) time.Time {
 	return t
 }
 
-func newFile(path string, info *driveItem) cloudfs.File {
-	return cloudfs.NewFile(path, &fileinfo{info: info}, func(fi *cloudfs.FileInfo) {
-		fi.Type = info.MimeType
-		if fi.Type == "" && info.IsDir() {
-			fi.Type = "DIR"
-		}
-		fi.ExtraInfo = map[string]any{
-			"id":               info.ID,
-			"etag":             info.ETag,
-			"ctag":             info.CTag,
-			"web_url":          info.WebURL,
-			"download_url":     info.DownloadURL,
-			"parent_reference": info.ParentReference,
-		}
-	})
+func newFile(path string, info *driveItem) cloudfs.FileInfo {
+	typ := info.MimeType
+	if typ == "" && info.IsDir() {
+		typ = "DIR"
+	}
+	return cloudfs.NewFileInfo(&fileinfo{info: info},
+		func(entry *cloudfs.Entry) {
+			entry.Path = path
+			entry.Type = typ
+			entry.ExtraInfo = map[string]any{
+				"id":               info.ID,
+				"etag":             info.ETag,
+				"ctag":             info.CTag,
+				"web_url":          info.WebURL,
+				"download_url":     info.DownloadURL,
+				"parent_reference": info.ParentReference,
+			}
+		},
+	)
 }
