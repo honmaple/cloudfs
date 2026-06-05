@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-resty/resty/v2"
 	"github.com/honmaple/cloudfs"
 	"github.com/honmaple/cloudfs/utils/ioutil"
 	"github.com/honmaple/cloudfs/utils/pathutil"
@@ -40,7 +41,7 @@ func (opt *Option) NewFS() (cloudfs.FS, error) {
 type OneDrive struct {
 	cloudfs.BaseFS
 	opt      *Option
-	client   *http.Client
+	client   *resty.Client
 	endpoint string
 	drive    string
 	rootID   string
@@ -59,34 +60,36 @@ func (d *OneDrive) request(ctx context.Context, method, path string, body io.Rea
 	if !strings.HasPrefix(path, "http://") && !strings.HasPrefix(path, "https://") {
 		path = d.endpoint + path
 	}
-	req, err := http.NewRequestWithContext(ctx, method, path, body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+d.opt.AccessToken)
+
+	req := d.client.R().
+		SetContext(ctx).
+		SetDoNotParseResponse(true).
+		SetHeader("Authorization", "Bearer "+d.opt.AccessToken)
 	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
+		req.SetBody(body)
+		req.SetHeader("Content-Type", "application/json")
 	}
-	for k, v := range headers {
-		req.Header.Set(k, v)
+	if len(headers) > 0 {
+		req.SetHeaders(headers)
 	}
 
-	resp, err := d.client.Do(req)
+	resp, err := req.Execute(method, path)
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return resp, nil
+	raw := resp.RawResponse
+	if raw.StatusCode >= 200 && raw.StatusCode < 300 {
+		return raw, nil
 	}
-	defer resp.Body.Close()
-	data, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode == http.StatusNotFound {
+	defer raw.Body.Close()
+	data, _ := io.ReadAll(raw.Body)
+	if raw.StatusCode == http.StatusNotFound {
 		return nil, fs.ErrNotExist
 	}
-	if resp.StatusCode == http.StatusConflict {
+	if raw.StatusCode == http.StatusConflict {
 		return nil, fs.ErrExist
 	}
-	return nil, fmt.Errorf("onedrive: %s: %s", resp.Status, strings.TrimSpace(string(data)))
+	return nil, fmt.Errorf("onedrive: %s: %s", raw.Status, strings.TrimSpace(string(data)))
 }
 
 func (d *OneDrive) requestJSON(ctx context.Context, method, path string, in, out any) error {
@@ -410,7 +413,7 @@ func New(opt *Option) (cloudfs.FS, error) {
 	}
 	return &OneDrive{
 		opt:      opt,
-		client:   http.DefaultClient,
+		client:   resty.New(),
 		endpoint: endpoint,
 		drive:    drive,
 		rootID:   rootID,

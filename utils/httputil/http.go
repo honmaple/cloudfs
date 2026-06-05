@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/go-resty/resty/v2"
 )
 
 func long2ip(ip int64) string {
@@ -45,7 +47,7 @@ type (
 	Option func(*option) error
 
 	Client struct {
-		client *http.Client
+		client *resty.Client
 	}
 	ClientOption func(*http.Client)
 )
@@ -104,6 +106,9 @@ func WithForm(data map[string]string) Option {
 			form.Set(k, v)
 		}
 		opt.body = strings.NewReader(form.Encode())
+		WithHeaders(map[string]string{
+			"Content-Type": "application/x-www-form-urlencoded",
+		})(opt)
 		return nil
 	}
 }
@@ -164,41 +169,47 @@ func (d *Client) Request(method, url string, opts ...Option) (*http.Response, er
 		url = strings.TrimSuffix(opt.host, "/") + url
 	}
 
-	req, err := http.NewRequest(method, url, opt.body)
-	if err != nil {
-		return nil, err
+	client := d.client
+	if opt.timeout == NeverTimeout || opt.timeout > 0 || len(opt.requests) > 0 {
+		httpClient := *d.client.GetClient()
+		if opt.timeout == NeverTimeout || opt.timeout > 0 {
+			if opt.timeout == NeverTimeout {
+				httpClient.Timeout = 0
+			} else {
+				httpClient.Timeout = opt.timeout
+			}
+		}
+		client = resty.NewWithClient(&httpClient)
 	}
+
+	req := client.R().SetDoNotParseResponse(true)
 	if opt.ctx != nil {
-		req = req.WithContext(opt.ctx)
+		req.SetContext(opt.ctx)
+	}
+	if opt.body != nil {
+		req.SetBody(opt.body)
 	}
 
 	headers := map[string]string{
 		"X-Real-IP":  randomIP(),
 		"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_13_5, AppleWebKit/605.1.15 (KHTML, like Gecko,",
 	}
-	for k, v := range headers {
-		req.Header.Set(k, v)
+	req.SetHeaders(headers)
+
+	if len(opt.requests) > 0 {
+		client.SetPreRequestHook(func(_ *resty.Client, raw *http.Request) error {
+			for _, fn := range opt.requests {
+				fn(raw)
+			}
+			return nil
+		})
 	}
 
-	for _, fn := range opt.requests {
-		fn(req)
-	}
-
-	client := d.client
-	if (opt.timeout == NeverTimeout && d.client.Timeout != 0) || (opt.timeout > 0 && opt.timeout != d.client.Timeout) {
-		client = newClient()
-		if opt.timeout == NeverTimeout {
-			client.Timeout = 0
-		} else {
-			client.Timeout = opt.timeout
-		}
-	}
-
-	resp, err := client.Do(req)
+	resp, err := req.Execute(method, url)
 	if err != nil {
 		return nil, err
 	}
-	return resp, nil
+	return resp.RawResponse, nil
 }
 
 func newClient() *http.Client {
@@ -226,11 +237,11 @@ func WithClientTimeout(timeout time.Duration) ClientOption {
 }
 
 func New(opts ...ClientOption) *Client {
-	client := newClient()
+	httpClient := newClient()
 	for _, opt := range opts {
-		opt(client)
+		opt(httpClient)
 	}
 	return &Client{
-		client: client,
+		client: resty.NewWithClient(httpClient),
 	}
 }
