@@ -58,7 +58,7 @@ func main() {
 		panic(err)
 	}
 
-	w, err := fs.Create("/docs/hello.txt")
+	w, err := fs.Create(ctx, "/docs/hello.txt")
 	if err != nil {
 		panic(err)
 	}
@@ -78,7 +78,7 @@ func main() {
 		println(file.Path(), file.Name(), file.Size())
 	}
 
-	r, err := fs.Open("/docs/hello.txt")
+	r, err := fs.Open(ctx, "/docs/hello.txt")
 	if err != nil {
 		panic(err)
 	}
@@ -136,7 +136,7 @@ All paths use slash-separated absolute-style paths such as `/`, `/dir`, and
 ctx := context.Background()
 
 files, err := fs.List(ctx, "/")
-info, err := fs.Get(ctx, "/file.txt")
+info, err := fs.Stat(ctx, "/file.txt")
 err = fs.MakeDir(ctx, "/new-dir")
 err = fs.Rename(ctx, "/file.txt", "new-name.txt")
 err = fs.Move(ctx, "/new-name.txt", "/new-dir")
@@ -147,7 +147,7 @@ err = fs.Remove(ctx, "/new-dir/new-name.txt")
 Reading supports `io.Reader`, `io.Seeker`, and `io.Closer`:
 
 ```go
-r, err := fs.Open("/file.txt")
+r, err := fs.Open(ctx, "/file.txt")
 if err != nil {
 	return err
 }
@@ -159,7 +159,7 @@ _, _ = r.Seek(10, io.SeekStart)
 Writing returns an `io.WriteCloser`. Always close it to finish the upload:
 
 ```go
-w, err := fs.Create("/file.txt")
+w, err := fs.Create(ctx, "/file.txt")
 if err != nil {
 	return err
 }

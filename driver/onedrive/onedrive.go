@@ -297,7 +297,7 @@ func (d *OneDrive) MakeDir(ctx context.Context, path string) error {
 	return d.requestJSON(ctx, http.MethodPost, d.itemURL(parent.ID)+"/children", body, nil)
 }
 
-func (d *OneDrive) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *OneDrive) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	item, err := d.resolve(ctx, path)
 	if err != nil {
 		return nil, err
@@ -305,8 +305,8 @@ func (d *OneDrive) Get(ctx context.Context, path string) (cloudfs.File, error) {
 	return newFile(filepath.Dir(pathutil.CleanPath(path)), item), nil
 }
 
-func (d *OneDrive) Open(path string) (cloudfs.FileReader, error) {
-	item, err := d.resolve(context.Background(), path)
+func (d *OneDrive) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+	item, err := d.resolve(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -320,7 +320,7 @@ func (d *OneDrive) Open(path string) (cloudfs.FileReader, error) {
 		} else {
 			headers["Range"] = fmt.Sprintf("bytes=%d-", offset)
 		}
-		resp, err := d.request(context.Background(), http.MethodGet, d.itemURL(item.ID)+"/content", nil, headers)
+		resp, err := d.request(ctx, http.MethodGet, d.itemURL(item.ID)+"/content", nil, headers)
 		if err != nil {
 			return nil, err
 		}
@@ -329,15 +329,15 @@ func (d *OneDrive) Open(path string) (cloudfs.FileReader, error) {
 	return cloudfs.NewFileReader(item.Size, rangeFunc)
 }
 
-func (d *OneDrive) Create(path string) (cloudfs.FileWriter, error) {
-	parent, name, err := d.resolveParent(context.Background(), path)
+func (d *OneDrive) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
+	parent, name, err := d.resolveParent(ctx, path)
 	if err != nil {
 		return nil, err
 	}
 	r, w := ioutil.Pipe()
 	go func() {
 		uploadPath := d.itemURL(parent.ID) + ":/" + url.PathEscape(name) + ":/content"
-		resp, err := d.request(context.Background(), http.MethodPut, uploadPath, r, map[string]string{
+		resp, err := d.request(ctx, http.MethodPut, uploadPath, r, map[string]string{
 			"Content-Type": "application/octet-stream",
 		})
 		if err != nil {

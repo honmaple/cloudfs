@@ -151,14 +151,14 @@ func (d *encryptFS) List(ctx context.Context, path string, opts ...cloudfs.ListO
 	return files, nil
 }
 
-func (d *encryptFS) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *encryptFS) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	// 不知道path是文件还是目录，所以请求两次
-	file, err := d.FS.Get(ctx, d.getActualPath(path, true))
+	file, err := d.FS.Stat(ctx, d.getActualPath(path, true))
 	if err != nil {
 		if d.opt.FileName == d.opt.DirName {
 			return nil, err
 		}
-		file, err = d.FS.Get(ctx, d.getActualPath(path, false))
+		file, err = d.FS.Stat(ctx, d.getActualPath(path, false))
 		if err != nil {
 			return nil, err
 		}
@@ -166,16 +166,16 @@ func (d *encryptFS) Get(ctx context.Context, path string) (cloudfs.File, error) 
 	return d.getActualFile(file), nil
 }
 
-func (d *encryptFS) Open(path string) (cloudfs.FileReader, error) {
+func (d *encryptFS) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
 	actualPath := d.getActualPath(path, false)
 
-	info, err := d.FS.Get(context.TODO(), actualPath)
+	info, err := d.FS.Stat(ctx, actualPath)
 	if err != nil {
 		return nil, err
 	}
 
 	rangeFunc := func(offset int64, length int64) (io.ReadCloser, error) {
-		r, err := d.FS.Open(actualPath)
+		r, err := d.FS.Open(ctx, actualPath)
 		if err != nil {
 			return nil, err
 		}
@@ -192,10 +192,10 @@ func (d *encryptFS) Open(path string) (cloudfs.FileReader, error) {
 	return cloudfs.NewFileReader(info.Size(), rangeFunc)
 }
 
-func (d *encryptFS) Create(path string) (cloudfs.FileWriter, error) {
+func (d *encryptFS) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
 	actualPath := d.getActualPath(path, false)
 
-	w, err := d.FS.Create(actualPath)
+	w, err := d.FS.Create(ctx, actualPath)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +203,7 @@ func (d *encryptFS) Create(path string) (cloudfs.FileWriter, error) {
 }
 
 func (d *encryptFS) Copy(ctx context.Context, src string, dst string) error {
-	srcFile, err := d.Get(ctx, src)
+	srcFile, err := d.Stat(ctx, src)
 	if err != nil {
 		return err
 	}
@@ -211,7 +211,7 @@ func (d *encryptFS) Copy(ctx context.Context, src string, dst string) error {
 }
 
 func (d *encryptFS) Move(ctx context.Context, src string, dst string) error {
-	srcFile, err := d.Get(ctx, src)
+	srcFile, err := d.Stat(ctx, src)
 	if err != nil {
 		return err
 	}
@@ -219,7 +219,7 @@ func (d *encryptFS) Move(ctx context.Context, src string, dst string) error {
 }
 
 func (d *encryptFS) Rename(ctx context.Context, path, newName string) error {
-	file, err := d.Get(ctx, path)
+	file, err := d.Stat(ctx, path)
 	if err != nil {
 		return err
 	}
@@ -232,7 +232,7 @@ func (d *encryptFS) Rename(ctx context.Context, path, newName string) error {
 }
 
 func (d *encryptFS) Remove(ctx context.Context, path string) error {
-	file, err := d.Get(ctx, path)
+	file, err := d.Stat(ctx, path)
 	if err != nil {
 		return err
 	}

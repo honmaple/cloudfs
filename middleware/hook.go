@@ -60,8 +60,8 @@ func (d *hookFS) List(ctx context.Context, path string, opts ...cloudfs.ListOpti
 	return newFiles, nil
 }
 
-func (d *hookFS) Get(ctx context.Context, path string) (cloudfs.File, error) {
-	file, err := d.FS.Get(ctx, d.getActualPath(path))
+func (d *hookFS) Stat(ctx context.Context, path string) (cloudfs.File, error) {
+	file, err := d.FS.Stat(ctx, d.getActualPath(path))
 	if err != nil {
 		return nil, err
 	}
@@ -70,12 +70,12 @@ func (d *hookFS) Get(ctx context.Context, path string) (cloudfs.File, error) {
 	return newFile, nil
 }
 
-func (d *hookFS) Open(path string) (cloudfs.FileReader, error) {
-	return d.FS.Open(d.getActualPath(path))
+func (d *hookFS) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+	return d.FS.Open(ctx, d.getActualPath(path))
 }
 
-func (d *hookFS) Create(path string) (cloudfs.FileWriter, error) {
-	return d.FS.Create(d.getActualPath(path))
+func (d *hookFS) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
+	return d.FS.Create(ctx, d.getActualPath(path))
 }
 
 func (d *hookFS) Copy(ctx context.Context, src string, dst string) error {

@@ -283,7 +283,7 @@ func (d *GoogleDrive) MakeDir(ctx context.Context, path string) error {
 	return err
 }
 
-func (d *GoogleDrive) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *GoogleDrive) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	file, err := d.resolve(ctx, path)
 	if err != nil {
 		return nil, err
@@ -291,8 +291,7 @@ func (d *GoogleDrive) Get(ctx context.Context, path string) (cloudfs.File, error
 	return newFile(filepath.Dir(pathutil.CleanPath(path)), file), nil
 }
 
-func (d *GoogleDrive) Open(path string) (cloudfs.FileReader, error) {
-	ctx := context.Background()
+func (d *GoogleDrive) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
 	file, err := d.resolve(ctx, path)
 	if err != nil {
 		return nil, err
@@ -327,15 +326,14 @@ func (d *GoogleDrive) Open(path string) (cloudfs.FileReader, error) {
 	return cloudfs.NewFileReader(size, rangeFunc)
 }
 
-func (d *GoogleDrive) Create(path string) (cloudfs.FileWriter, error) {
-	parent, name, err := d.resolveParent(context.Background(), path)
+func (d *GoogleDrive) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
+	parent, name, err := d.resolveParent(ctx, path)
 	if err != nil {
 		return nil, err
 	}
 
 	r, w := ioutil.Pipe()
 	go func() {
-		ctx := context.Background()
 		file, err := d.findChild(ctx, parent.Id, name)
 		if err == nil {
 			if isDir(file) {

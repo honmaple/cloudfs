@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"compress/gzip"
+	"context"
 	"io"
 
 	"github.com/honmaple/cloudfs"
@@ -53,8 +54,8 @@ func (d *compressFS) uncompress(in io.Reader) (*gzip.Reader, error) {
 	return gzip.NewReader(in)
 }
 
-func (d *compressFS) Open(path string) (cloudfs.FileReader, error) {
-	r, err := d.FS.Open(path)
+func (d *compressFS) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+	r, err := d.FS.Open(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -66,8 +67,8 @@ func (d *compressFS) Open(path string) (cloudfs.FileReader, error) {
 	return &WrapReader{r, nr}, nil
 }
 
-func (d *compressFS) Create(path string) (cloudfs.FileWriter, error) {
-	w, err := d.FS.Create(path)
+func (d *compressFS) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
+	w, err := d.FS.Create(ctx, path)
 	if err != nil {
 		return nil, err
 	}

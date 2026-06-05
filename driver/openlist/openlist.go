@@ -138,7 +138,7 @@ func (d *Openlist) MakeDir(ctx context.Context, path string) error {
 	return err
 }
 
-func (d *Openlist) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *Openlist) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	resp, err := d.requestWithData(ctx, http.MethodPost, "/api/fs/get", map[string]any{
 		"path":     path,
 		"password": "",
@@ -157,8 +157,8 @@ func (d *Openlist) Get(ctx context.Context, path string) (cloudfs.File, error) {
 	return cloudfs.NewFile(filepath.Dir(path), &fileinfo{result.Get("data")}), nil
 }
 
-func (d *Openlist) Open(path string) (cloudfs.FileReader, error) {
-	resp, err := d.requestWithData(context.Background(), http.MethodPost, "/api/fs/get", map[string]any{
+func (d *Openlist) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+	resp, err := d.requestWithData(ctx, http.MethodPost, "/api/fs/get", map[string]any{
 		"path":     path,
 		"password": "",
 	})
@@ -173,7 +173,7 @@ func (d *Openlist) Open(path string) (cloudfs.FileReader, error) {
 	}
 
 	rangeFunc := func(offset, length int64) (io.ReadCloser, error) {
-		return d.request(context.Background(), http.MethodGet, url, httputil.WithNeverTimeout(), httputil.WithRequest(func(req *http.Request) {
+		return d.request(ctx, http.MethodGet, url, httputil.WithNeverTimeout(), httputil.WithRequest(func(req *http.Request) {
 			if length > 0 {
 				req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", offset, offset+length-1))
 			} else {
@@ -184,10 +184,10 @@ func (d *Openlist) Open(path string) (cloudfs.FileReader, error) {
 	return cloudfs.NewFileReader(result.Get("data.size").Int(), rangeFunc)
 }
 
-func (d *Openlist) Create(path string) (cloudfs.FileWriter, error) {
+func (d *Openlist) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
 	r, w := ioutil.Pipe()
 	go func() {
-		resp, err := d.request(context.Background(), http.MethodPut, "/api/fs/put", httputil.WithBody(r), httputil.WithNeverTimeout(), httputil.WithRequest(func(req *http.Request) {
+		resp, err := d.request(ctx, http.MethodPut, "/api/fs/put", httputil.WithBody(r), httputil.WithNeverTimeout(), httputil.WithRequest(func(req *http.Request) {
 			req.Header.Set("File-Path", path)
 			req.Header.Set("Password", "")
 		}))

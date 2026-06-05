@@ -41,7 +41,7 @@ func (d *SMB) Close() error {
 	return d.client.Umount()
 }
 
-func (d *SMB) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *SMB) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	info, err := d.client.Stat(path)
 	if err != nil {
 		return nil, err
@@ -49,11 +49,11 @@ func (d *SMB) Get(ctx context.Context, path string) (cloudfs.File, error) {
 	return cloudfs.NewFile(path, info), nil
 }
 
-func (d *SMB) Open(path string) (cloudfs.FileReader, error) {
+func (d *SMB) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
 	return d.client.Open(path)
 }
 
-func (d *SMB) Create(path string) (cloudfs.FileWriter, error) {
+func (d *SMB) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
 	return d.client.Create(path)
 }
 
@@ -134,7 +134,7 @@ func (d *SMB) copyDir(ctx context.Context, src, dst string) error {
 }
 
 func (d *SMB) Copy(ctx context.Context, src, dst string) error {
-	dstFile, err := d.Get(ctx, dst)
+	dstFile, err := d.Stat(ctx, dst)
 	if err != nil {
 		return err
 	} else if !dstFile.IsDir() {
@@ -143,7 +143,7 @@ func (d *SMB) Copy(ctx context.Context, src, dst string) error {
 		dst = filepath.Join(dst, filepath.Base(src))
 	}
 
-	srcFile, err := d.Get(ctx, src)
+	srcFile, err := d.Stat(ctx, src)
 	if err != nil {
 		return err
 	}

@@ -38,7 +38,7 @@ func (d *FTP) Close() error {
 	return d.client.Logout()
 }
 
-func (d *FTP) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *FTP) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	info, err := d.client.GetEntry(path)
 	if err != nil {
 		return nil, err
@@ -46,7 +46,7 @@ func (d *FTP) Get(ctx context.Context, path string) (cloudfs.File, error) {
 	return cloudfs.NewFile(filepath.Dir(path), &fileinfo{info}), nil
 }
 
-func (d *FTP) Open(path string) (cloudfs.FileReader, error) {
+func (d *FTP) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
 	info, err := d.client.GetEntry(path)
 	if err != nil {
 		return nil, err
@@ -61,7 +61,7 @@ func (d *FTP) Open(path string) (cloudfs.FileReader, error) {
 	return cloudfs.NewFileReader(int64(info.Size), rangeFunc)
 }
 
-func (d *FTP) Create(path string) (cloudfs.FileWriter, error) {
+func (d *FTP) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
 	r, w := ioutil.Pipe()
 	go func() {
 		err := d.client.Stor(path, r)

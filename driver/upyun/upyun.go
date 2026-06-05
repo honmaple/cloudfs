@@ -86,7 +86,7 @@ func (d *Upyun) MakeDir(ctx context.Context, path string) error {
 	return d.client.Mkdir(path)
 }
 
-func (d *Upyun) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *Upyun) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	info, err := d.client.GetInfo(path)
 	if err != nil {
 		return nil, err
@@ -94,7 +94,7 @@ func (d *Upyun) Get(ctx context.Context, path string) (cloudfs.File, error) {
 	return cloudfs.NewFile(filepath.Dir(path), &fileinfo{info}), nil
 }
 
-func (d *Upyun) Open(path string) (cloudfs.FileReader, error) {
+func (d *Upyun) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
 	info, err := d.client.GetInfo(path)
 	if err != nil {
 		return nil, err
@@ -122,7 +122,7 @@ func (d *Upyun) Open(path string) (cloudfs.FileReader, error) {
 	return cloudfs.NewFileReader(info.Size, rangeFunc)
 }
 
-func (d *Upyun) Create(path string) (cloudfs.FileWriter, error) {
+func (d *Upyun) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
 	r, w := ioutil.Pipe()
 	go func() {
 		err := d.client.Put(&upyun.PutObjectConfig{

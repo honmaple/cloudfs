@@ -23,7 +23,7 @@ func (d *wrapFS) getActualPath(ctx context.Context, path string) (string, error)
 		return "0", nil
 	}
 
-	file, err := d.Get(ctx, path)
+	file, err := d.Stat(ctx, path)
 	if err != nil {
 		return "", err
 	}
@@ -101,23 +101,23 @@ func (d *wrapFS) Remove(ctx context.Context, path string) error {
 	return d.FS.Remove(ctx, actualPath)
 }
 
-func (d *wrapFS) Open(path string) (cloudfs.FileReader, error) {
-	actualPath, err := d.getActualPath(context.TODO(), path)
+func (d *wrapFS) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+	actualPath, err := d.getActualPath(ctx, path)
 	if err != nil {
 		return nil, err
 	}
-	return d.FS.Open(actualPath)
+	return d.FS.Open(ctx, actualPath)
 }
 
-// func (d *wrapFS) Create(path string) (cloudfs.FileWriter, error) {
-//	actualPath, err := d.getActualPath(context.TODO(), path)
+// func (d *wrapFS) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
+//	actualPath, err := d.getActualPath(ctx, path)
 //	if err != nil {
 //		return nil, err
 //	}
-//	return d.FS.Create(actualPath)
+//	return d.FS.Create(ctx, actualPath)
 // }
 
-func (d *wrapFS) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *wrapFS) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	// /aaa/bbb/ccc/ddd
 	if path == "/" {
 		return nil, cloudfs.ErrNotSupport

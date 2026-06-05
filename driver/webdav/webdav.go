@@ -48,7 +48,7 @@ func (d *Webdav) List(ctx context.Context, path string, opts ...cloudfs.ListOpti
 }
 
 func (d *Webdav) Move(ctx context.Context, src, dst string) error {
-	dstFile, err := d.Get(ctx, dst)
+	dstFile, err := d.Stat(ctx, dst)
 	if err != nil {
 		return err
 	} else if !dstFile.IsDir() {
@@ -60,7 +60,7 @@ func (d *Webdav) Move(ctx context.Context, src, dst string) error {
 }
 
 func (d *Webdav) Copy(ctx context.Context, src, dst string) error {
-	dstFile, err := d.Get(ctx, dst)
+	dstFile, err := d.Stat(ctx, dst)
 	if err != nil {
 		return err
 	} else if !dstFile.IsDir() {
@@ -83,7 +83,7 @@ func (d *Webdav) MakeDir(ctx context.Context, path string) error {
 	return d.client.MkdirAll(path, d.opt.DirPerm)
 }
 
-func (d *Webdav) Open(path string) (cloudfs.FileReader, error) {
+func (d *Webdav) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
 	info, err := d.client.Stat(path)
 	if err != nil {
 		return nil, err
@@ -96,7 +96,7 @@ func (d *Webdav) Open(path string) (cloudfs.FileReader, error) {
 
 }
 
-func (d *Webdav) Create(path string) (cloudfs.FileWriter, error) {
+func (d *Webdav) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
 	r, w := ioutil.Pipe()
 	go func() {
 		r.CloseWithError(d.client.WriteStream(path, r, d.opt.DirPerm))
@@ -104,7 +104,7 @@ func (d *Webdav) Create(path string) (cloudfs.FileWriter, error) {
 	return w, nil
 }
 
-func (d *Webdav) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *Webdav) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	fi, err := d.client.Stat(path)
 	if err != nil {
 		rawErr := cloudfs.UnderlyingError(err)

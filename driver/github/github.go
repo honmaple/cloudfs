@@ -59,12 +59,12 @@ func (d *Github) request(ctx context.Context, method, url string, opts ...httput
 	return nil, fmt.Errorf("bad status: %d", resp.StatusCode)
 }
 
-func (d *Github) download(url string, size int64) (cloudfs.FileReader, error) {
+func (d *Github) download(ctx context.Context, url string, size int64) (cloudfs.FileReader, error) {
 	if url == "" {
 		return nil, errors.New("no download url")
 	}
 	rangeFunc := func(offset, length int64) (io.ReadCloser, error) {
-		return d.request(context.Background(), http.MethodGet, url, httputil.WithNeverTimeout(), httputil.WithRequest(func(req *http.Request) {
+		return d.request(ctx, http.MethodGet, url, httputil.WithNeverTimeout(), httputil.WithRequest(func(req *http.Request) {
 			if length > 0 {
 				req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", offset, offset+length-1))
 			} else {
@@ -105,7 +105,7 @@ func (d *Github) getActualPath(path string) (string, string, string) {
 	return repo, ref, path
 }
 
-func (d *Github) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *Github) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	repo, ref, actualPath := d.getActualPath(path)
 	if repo == "" {
 		return nil, fmt.Errorf("can't stat %s", path)
@@ -140,7 +140,7 @@ func (d *Github) Get(ctx context.Context, path string) (cloudfs.File, error) {
 	}
 
 	dir, filename := filepath.Dir(actualPath), filepath.Base(actualPath)
-	_, dc, _, err := d.client.Repositories.GetContents(context.Background(), d.opt.Owner, repo, dir, &github.RepositoryContentGetOptions{
+	_, dc, _, err := d.client.Repositories.GetContents(ctx, d.opt.Owner, repo, dir, &github.RepositoryContentGetOptions{
 		Ref: ref,
 	})
 	if err != nil {
@@ -163,14 +163,14 @@ func (d *Github) Get(ctx context.Context, path string) (cloudfs.File, error) {
 	return nil, fmt.Errorf("no file named %s found in %s", filename, dir)
 }
 
-func (d *Github) Open(path string) (cloudfs.FileReader, error) {
+func (d *Github) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
 	repo, ref, actualPath := d.getActualPath(path)
 	if repo == "" || actualPath == "/" {
 		return nil, fmt.Errorf("can't open %s", path)
 	}
 
 	dir, filename := filepath.Dir(actualPath), filepath.Base(actualPath)
-	_, dc, _, err := d.client.Repositories.GetContents(context.Background(), d.opt.Owner, repo, dir, &github.RepositoryContentGetOptions{
+	_, dc, _, err := d.client.Repositories.GetContents(ctx, d.opt.Owner, repo, dir, &github.RepositoryContentGetOptions{
 		Ref: ref,
 	})
 	if err != nil {
@@ -181,7 +181,7 @@ func (d *Github) Open(path string) (cloudfs.FileReader, error) {
 		if result.GetName() != filename {
 			continue
 		}
-		return d.download(result.GetDownloadURL(), int64(result.GetSize()))
+		return d.download(ctx, result.GetDownloadURL(), int64(result.GetSize()))
 	}
 	return nil, fmt.Errorf("no file named %s found in %s", filename, dir)
 }

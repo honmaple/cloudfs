@@ -61,7 +61,7 @@ func (d *Local) List(ctx context.Context, path string, opts ...cloudfs.ListOptio
 	return files, nil
 }
 
-func (d *Local) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *Local) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	info, err := os.Stat(d.getActualPath(path))
 	if err != nil {
 		return nil, err
@@ -69,11 +69,11 @@ func (d *Local) Get(ctx context.Context, path string) (cloudfs.File, error) {
 	return d.getActualFile(cloudfs.NewFile(filepath.Dir(path), info)), nil
 }
 
-func (d *Local) Open(path string) (cloudfs.FileReader, error) {
+func (d *Local) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
 	return os.Open(d.getActualPath(path))
 }
 
-func (d *Local) Create(path string) (cloudfs.FileWriter, error) {
+func (d *Local) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
 	return os.Create(d.getActualPath(path))
 }
 
@@ -83,7 +83,7 @@ func (d *Local) Rename(ctx context.Context, path, newName string) error {
 }
 
 func (d *Local) Move(ctx context.Context, src, dst string) error {
-	dstFile, err := d.Get(ctx, dst)
+	dstFile, err := d.Stat(ctx, dst)
 	if err != nil {
 		return err
 	}
@@ -153,7 +153,7 @@ func (d *Local) copyDir(ctx context.Context, src, dst string) error {
 }
 
 func (d *Local) Copy(ctx context.Context, src, dst string) error {
-	dstFile, err := d.Get(ctx, dst)
+	dstFile, err := d.Stat(ctx, dst)
 	if err != nil {
 		return err
 	}
@@ -161,7 +161,7 @@ func (d *Local) Copy(ctx context.Context, src, dst string) error {
 		return errors.New("copy dst must be a dir")
 	}
 
-	srcFile, err := d.Get(ctx, src)
+	srcFile, err := d.Stat(ctx, src)
 	if err != nil {
 		return err
 	}
@@ -179,7 +179,7 @@ func (d *Local) MakeDir(ctx context.Context, path string) error {
 }
 
 func (d *Local) Remove(ctx context.Context, path string) error {
-	file, err := d.Get(ctx, path)
+	file, err := d.Stat(ctx, path)
 	if err != nil {
 		return err
 	}

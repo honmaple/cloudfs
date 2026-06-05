@@ -195,7 +195,7 @@ func (d *Foxel) List(ctx context.Context, path string, opts ...cloudfs.ListOptio
 	return files, nil
 }
 
-func (d *Foxel) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *Foxel) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	data, err := d.requestJSON(ctx, http.MethodGet, d.statPath(path), func() []httputil.Option { return nil })
 	if err != nil {
 		return nil, err
@@ -203,8 +203,8 @@ func (d *Foxel) Get(ctx context.Context, path string) (cloudfs.File, error) {
 	return cloudfs.NewFile(filepath.Dir(path), &fileinfo{info: data, name: filepath.Base(path)}), nil
 }
 
-func (d *Foxel) Open(path string) (cloudfs.FileReader, error) {
-	info, err := d.Get(context.Background(), path)
+func (d *Foxel) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+	info, err := d.Stat(ctx, path)
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +213,6 @@ func (d *Foxel) Open(path string) (cloudfs.FileReader, error) {
 	}
 
 	rangeFunc := func(offset, length int64) (io.ReadCloser, error) {
-		ctx := context.Background()
 		for i := 0; i < 2; i++ {
 			resp, err := d.request(ctx, http.MethodGet, d.streamPath(path),
 				httputil.WithNeverTimeout(),
@@ -248,11 +247,9 @@ func (d *Foxel) Open(path string) (cloudfs.FileReader, error) {
 	return cloudfs.NewFileReader(info.Size(), rangeFunc)
 }
 
-func (d *Foxel) Create(path string) (cloudfs.FileWriter, error) {
+func (d *Foxel) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
 	r, w := ioutil.Pipe()
 	go func() {
-		ctx := context.Background()
-
 		bodyReader, bodyWriter := io.Pipe()
 		mpWriter := multipart.NewWriter(bodyWriter)
 

@@ -89,7 +89,7 @@ func (d *Pan115) Remove(ctx context.Context, path string) error {
 	return d.client.Delete(path)
 }
 
-func (d *Pan115) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *Pan115) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	result, err := d.client.GetFile(path)
 	if err != nil {
 		return nil, err
@@ -107,7 +107,7 @@ func (d *Pan115) Get(ctx context.Context, path string) (cloudfs.File, error) {
 	return info.File(), nil
 }
 
-func (d *Pan115) Open(path string) (cloudfs.FileReader, error) {
+func (d *Pan115) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
 	result, err := d.client.GetFile(path)
 	if err != nil {
 		return nil, err
@@ -120,7 +120,7 @@ func (d *Pan115) Open(path string) (cloudfs.FileReader, error) {
 
 	rangeFunc := func(offset, length int64) (io.ReadCloser, error) {
 		opts := []httputil.Option{
-			httputil.WithContext(context.Background()),
+			httputil.WithContext(ctx),
 			httputil.WithNeverTimeout(),
 			httputil.WithRequest(func(req *http.Request) {
 				if length > 0 {

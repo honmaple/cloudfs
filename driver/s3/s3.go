@@ -165,7 +165,7 @@ func (d *S3) copyFile(ctx context.Context, src, dst string) error {
 }
 
 func (d *S3) Copy(ctx context.Context, src, dst string) error {
-	info, err := d.Get(ctx, src)
+	info, err := d.Stat(ctx, src)
 	if err != nil {
 		return err
 	}
@@ -213,7 +213,7 @@ func (d *S3) removeFile(ctx context.Context, path string) error {
 }
 
 func (d *S3) Remove(ctx context.Context, path string) error {
-	info, err := d.Get(ctx, path)
+	info, err := d.Stat(ctx, path)
 	if err != nil {
 		return err
 	}
@@ -234,8 +234,8 @@ func (d *S3) MakeDir(ctx context.Context, path string) error {
 	return err
 }
 
-func (d *S3) Open(path string) (cloudfs.FileReader, error) {
-	result, err := d.client.HeadObject(&s3.HeadObjectInput{
+func (d *S3) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+	result, err := d.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(d.opt.Bucket),
 		Key:    aws.String(d.getPath(path, false)),
 	})
@@ -253,7 +253,7 @@ func (d *S3) Open(path string) (cloudfs.FileReader, error) {
 		} else {
 			input.Range = aws.String(fmt.Sprintf("bytes=%d-", offset))
 		}
-		result, err := d.client.GetObject(input)
+		result, err := d.client.GetObjectWithContext(ctx, input)
 		if err != nil {
 			return nil, err
 		}
@@ -267,12 +267,12 @@ func (d *S3) Open(path string) (cloudfs.FileReader, error) {
 	return cloudfs.NewFileReader(length, rangeFunc)
 }
 
-func (d *S3) Create(path string) (cloudfs.FileWriter, error) {
+func (d *S3) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
 	r, w := ioutil.Pipe()
 	go func() {
 		uploader := s3manager.NewUploader(d.session)
 
-		_, err := uploader.Upload(&s3manager.UploadInput{
+		_, err := uploader.UploadWithContext(ctx, &s3manager.UploadInput{
 			Bucket: aws.String(d.opt.Bucket),
 			Key:    aws.String(d.getPath(path, false)),
 			Body:   r,
@@ -282,7 +282,7 @@ func (d *S3) Create(path string) (cloudfs.FileWriter, error) {
 	return w, nil
 }
 
-func (d *S3) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *S3) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	result, err := d.client.HeadObjectWithContext(ctx, &s3.HeadObjectInput{
 		Bucket: aws.String(d.opt.Bucket),
 		Key:    aws.String(d.getPath(path, false)),

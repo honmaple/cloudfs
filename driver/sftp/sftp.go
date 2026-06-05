@@ -40,7 +40,7 @@ func (d *SFTP) Close() error {
 	return d.client.Close()
 }
 
-func (d *SFTP) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *SFTP) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	info, err := d.client.Stat(path)
 	if err != nil {
 		return nil, err
@@ -48,11 +48,11 @@ func (d *SFTP) Get(ctx context.Context, path string) (cloudfs.File, error) {
 	return cloudfs.NewFile(path, info), nil
 }
 
-func (d *SFTP) Open(path string) (cloudfs.FileReader, error) {
+func (d *SFTP) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
 	return d.client.Open(path)
 }
 
-func (d *SFTP) Create(path string) (cloudfs.FileWriter, error) {
+func (d *SFTP) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
 	return d.client.Create(path)
 }
 
@@ -137,7 +137,7 @@ func (d *SFTP) copyDir(ctx context.Context, src, dst string) error {
 }
 
 func (d *SFTP) Copy(ctx context.Context, src, dst string) error {
-	dstFile, err := d.Get(ctx, dst)
+	dstFile, err := d.Stat(ctx, dst)
 	if err != nil {
 		return err
 	} else if !dstFile.IsDir() {
@@ -146,7 +146,7 @@ func (d *SFTP) Copy(ctx context.Context, src, dst string) error {
 		dst = filepath.Join(dst, filepath.Base(src))
 	}
 
-	srcFile, err := d.Get(ctx, src)
+	srcFile, err := d.Stat(ctx, src)
 	if err != nil {
 		return err
 	}

@@ -85,25 +85,25 @@ func (d *rateLimiteFS) MakeDir(ctx context.Context, path string) error {
 	return d.FS.MakeDir(ctx, path)
 }
 
-func (d *rateLimiteFS) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *rateLimiteFS) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	if err := d.checkLimit(ctx); err != nil {
 		return nil, err
 	}
-	return d.FS.Get(ctx, path)
+	return d.FS.Stat(ctx, path)
 }
 
-func (d *rateLimiteFS) Open(path string) (cloudfs.FileReader, error) {
-	if err := d.checkLimit(context.TODO()); err != nil {
+func (d *rateLimiteFS) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+	if err := d.checkLimit(ctx); err != nil {
 		return nil, err
 	}
-	return d.FS.Open(path)
+	return d.FS.Open(ctx, path)
 }
 
-func (d *rateLimiteFS) Create(path string) (cloudfs.FileWriter, error) {
-	if err := d.checkLimit(context.TODO()); err != nil {
+func (d *rateLimiteFS) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
+	if err := d.checkLimit(ctx); err != nil {
 		return nil, err
 	}
-	return d.FS.Create(path)
+	return d.FS.Create(ctx, path)
 }
 
 // 访问频率限制

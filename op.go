@@ -14,13 +14,13 @@ type (
 )
 
 func CopyFile(ctx context.Context, srcFS FS, src, dst string) error {
-	srcFile, err := srcFS.Open(src)
+	srcFile, err := srcFS.Open(ctx, src)
 	if err != nil {
 		return err
 	}
 	defer srcFile.Close()
 
-	dstFile, err := srcFS.Create(dst)
+	dstFile, err := srcFS.Create(ctx, dst)
 	if err != nil {
 		return err
 	}
@@ -61,13 +61,13 @@ func CopyDir(ctx context.Context, srcFS FS, src, dst string) error {
 func Copy(ctx context.Context, srcFS FS, src, dst string, opts ...map[string]any) error {
 	meta := Meta(opts...)
 
-	dstFile, err := srcFS.Get(ctx, dst)
+	dstFile, err := srcFS.Stat(ctx, dst)
 	if err != nil {
 		// 复制并重命名
 		if !meta.GetBool("auto_rename") {
 			return err
 		}
-		_, err = srcFS.Get(ctx, filepath.Dir(dst))
+		_, err = srcFS.Stat(ctx, filepath.Dir(dst))
 		if err != nil {
 			return err
 		}
@@ -77,7 +77,7 @@ func Copy(ctx context.Context, srcFS FS, src, dst string, opts ...map[string]any
 		dst = filepath.Join(dst, filepath.Base(src))
 	}
 
-	srcFile, err := srcFS.Get(ctx, src)
+	srcFile, err := srcFS.Stat(ctx, src)
 	if err != nil {
 		return err
 	}
@@ -119,7 +119,7 @@ func walkDir(ctx context.Context, srcFS FS, root string, d File, walkDirFn WalkD
 }
 
 func WalkDir(ctx context.Context, srcFS FS, root string, walkDirFn WalkDirFunc) error {
-	info, err := srcFS.Get(ctx, root)
+	info, err := srcFS.Stat(ctx, root)
 	if err != nil {
 		err = walkDirFn(root, nil, err)
 	} else {

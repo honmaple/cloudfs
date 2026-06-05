@@ -16,9 +16,9 @@ type (
 		Rename(context.Context, string, string) error
 		Remove(context.Context, string) error
 		MakeDir(context.Context, string) error
-		Get(context.Context, string) (File, error)
-		Open(string) (FileReader, error)
-		Create(string) (FileWriter, error)
+		Stat(context.Context, string) (File, error)
+		Open(context.Context, string) (FileReader, error)
+		Create(context.Context, string) (FileWriter, error)
 		Close() error
 	}
 	WrapFunc func(FS) (FS, error)
@@ -37,9 +37,9 @@ func (BaseFS) Copy(context.Context, string, string) error                  { ret
 func (BaseFS) Rename(context.Context, string, string) error                { return ErrNotSupport }
 func (BaseFS) Remove(context.Context, string) error                        { return ErrNotSupport }
 func (BaseFS) MakeDir(context.Context, string) error                       { return ErrNotSupport }
-func (BaseFS) Get(context.Context, string) (File, error)                   { return nil, ErrNotSupport }
-func (BaseFS) Open(string) (FileReader, error)                             { return nil, ErrNotSupport }
-func (BaseFS) Create(string) (FileWriter, error)                           { return nil, ErrNotSupport }
+func (BaseFS) Stat(context.Context, string) (File, error)                  { return nil, ErrNotSupport }
+func (BaseFS) Open(context.Context, string) (FileReader, error)            { return nil, ErrNotSupport }
+func (BaseFS) Create(context.Context, string) (FileWriter, error)          { return nil, ErrNotSupport }
 func (BaseFS) Close() error                                                { return nil }
 
 func New(driver string, option map[string]any, fns ...WrapFunc) (FS, error) {

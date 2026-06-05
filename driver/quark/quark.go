@@ -158,8 +158,8 @@ func (d *Quark) Remove(ctx context.Context, path string) error {
 	return err
 }
 
-func (d *Quark) Open(path string) (cloudfs.FileReader, error) {
-	resp, err := d.requestWithData(context.Background(), http.MethodPost, "/file/download", map[string]any{
+func (d *Quark) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
+	resp, err := d.requestWithData(ctx, http.MethodPost, "/file/download", map[string]any{
 		"fids": []string{path},
 	})
 	if err != nil {
@@ -174,7 +174,7 @@ func (d *Quark) Open(path string) (cloudfs.FileReader, error) {
 	}
 
 	rangeFunc := func(offset, length int64) (io.ReadCloser, error) {
-		return d.request(context.Background(), http.MethodGet, url, httputil.WithNeverTimeout(), httputil.WithRequest(func(req *http.Request) {
+		return d.request(ctx, http.MethodGet, url, httputil.WithNeverTimeout(), httputil.WithRequest(func(req *http.Request) {
 			if length > 0 {
 				req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", offset, offset+length-1))
 			} else {

@@ -55,12 +55,12 @@ func (d *GithubRelease) request(ctx context.Context, method, url string, opts ..
 	return nil, fmt.Errorf("bad status: %d", resp.StatusCode)
 }
 
-func (d *GithubRelease) download(url string, size int64) (cloudfs.FileReader, error) {
+func (d *GithubRelease) download(ctx context.Context, url string, size int64) (cloudfs.FileReader, error) {
 	if url == "" {
 		return nil, errors.New("no download url")
 	}
 	rangeFunc := func(offset, length int64) (io.ReadCloser, error) {
-		return d.request(context.Background(), http.MethodGet, url, httputil.WithNeverTimeout(), httputil.WithRequest(func(req *http.Request) {
+		return d.request(ctx, http.MethodGet, url, httputil.WithNeverTimeout(), httputil.WithRequest(func(req *http.Request) {
 			if length > 0 {
 				req.Header.Add("Range", fmt.Sprintf("bytes=%d-%d", offset, offset+length-1))
 			} else {
@@ -129,7 +129,7 @@ func (d *GithubRelease) getReleaseAsset(ctx context.Context, repo, releaseName, 
 	return nil, fmt.Errorf("no asset named %s found in %s", name, releaseName)
 }
 
-func (d *GithubRelease) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *GithubRelease) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	repo, release, actualPath := d.getActualPath(path)
 	if repo == "" {
 		return nil, fmt.Errorf("can't stat %s", path)
@@ -183,18 +183,18 @@ func (d *GithubRelease) Get(ctx context.Context, path string) (cloudfs.File, err
 	return nil, &fs.PathError{Op: "list", Path: path, Err: fs.ErrNotExist}
 }
 
-func (d *GithubRelease) Open(path string) (cloudfs.FileReader, error) {
+func (d *GithubRelease) Open(ctx context.Context, path string) (cloudfs.FileReader, error) {
 	repo, release, actualPath := d.getActualPath(path)
 	if repo == "" || release == "" || actualPath == "/" {
 		return nil, &fs.PathError{Op: "open", Path: path, Err: fs.ErrInvalid}
 	}
 
 	assetName := strings.TrimPrefix(actualPath, "/")
-	result, err := d.getReleaseAsset(context.Background(), repo, release, assetName)
+	result, err := d.getReleaseAsset(ctx, repo, release, assetName)
 	if err != nil {
 		return nil, err
 	}
-	return d.download(result.GetBrowserDownloadURL(), int64(result.GetSize()))
+	return d.download(ctx, result.GetBrowserDownloadURL(), int64(result.GetSize()))
 }
 
 func (d *GithubRelease) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.File, error) {

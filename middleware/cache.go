@@ -42,7 +42,7 @@ func (d *cacheFS) List(ctx context.Context, path string, opts ...cloudfs.ListOpt
 }
 
 // 部分服务会先获取文件信息，再获取列表，Get方式也需要缓存
-func (d *cacheFS) Get(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *cacheFS) Stat(ctx context.Context, path string) (cloudfs.File, error) {
 	files, ok := d.cache.Get(filepath.Dir(path))
 	if ok {
 		for _, file := range files {
@@ -51,11 +51,11 @@ func (d *cacheFS) Get(ctx context.Context, path string) (cloudfs.File, error) {
 			}
 		}
 	}
-	return d.FS.Get(ctx, path)
+	return d.FS.Stat(ctx, path)
 }
 
-func (d *cacheFS) Create(path string) (cloudfs.FileWriter, error) {
-	w, err := d.FS.Create(path)
+func (d *cacheFS) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
+	w, err := d.FS.Create(ctx, path)
 	if err != nil {
 		return nil, err
 	}
