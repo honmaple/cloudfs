@@ -277,11 +277,11 @@ func (d *Github) List(ctx context.Context, path string, opts ...cloudfs.ListOpti
 		return files, nil
 	}
 
-	opts := &github.RepositoryContentGetOptions{
+	copts := &github.RepositoryContentGetOptions{
 		Ref: ref,
 	}
 
-	fc, dc, _, err := d.client.Repositories.GetContents(ctx, d.opt.Owner, repo, actualPath, opts)
+	fc, dc, _, err := d.client.Repositories.GetContents(ctx, d.opt.Owner, repo, actualPath, copts)
 	if err != nil {
 		return nil, err
 	}
