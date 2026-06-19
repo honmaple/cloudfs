@@ -5,7 +5,7 @@ import (
 	"io/fs"
 	"mime"
 	"os"
-	filepath "path"
+	stdpath "path"
 	"time"
 )
 
@@ -141,7 +141,7 @@ func (f *fileInfo) Type() string {
 	if f.isDir {
 		return "DIR"
 	}
-	return mime.TypeByExtension(filepath.Ext(f.name))
+	return mime.TypeByExtension(stdpath.Ext(f.name))
 }
 func (f *fileInfo) Path() string              { return f.path }
 func (f *fileInfo) Name() string              { return f.name }

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	filepath "path"
+	stdpath "path"
 
 	"github.com/honmaple/cloudfs"
 	"github.com/honmaple/cloudfs/driver"
@@ -146,8 +146,8 @@ func (d *Quark) MakeDir(ctx context.Context, path string) error {
 	_, err := d.requestWithData(ctx, http.MethodPost, "/file", map[string]any{
 		"dir_init_lock": false,
 		"dir_path":      "",
-		"pdir_fid":      filepath.Dir(path),
-		"file_name":     filepath.Base(path),
+		"pdir_fid":      stdpath.Dir(path),
+		"file_name":     stdpath.Base(path),
 	})
 	return err
 }

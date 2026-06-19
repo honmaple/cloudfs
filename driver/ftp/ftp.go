@@ -7,7 +7,7 @@ import (
 	"io/fs"
 	"time"
 
-	filepath "path"
+	stdpath "path"
 
 	"github.com/honmaple/cloudfs"
 	"github.com/honmaple/cloudfs/driver"
@@ -44,7 +44,7 @@ func (d *FTP) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return cloudfs.NewFileInfo(&fileinfo{info}, func(info *cloudfs.Entry) { info.Path = filepath.Dir(path) }), nil
+	return cloudfs.NewFileInfo(&fileinfo{info}, func(info *cloudfs.Entry) { info.Path = stdpath.Dir(path) }), nil
 }
 
 func (d *FTP) Open(ctx context.Context, path string) (cloudfs.File, error) {
@@ -93,7 +93,7 @@ func (d *FTP) Copy(ctx context.Context, src, dst string) error {
 }
 
 func (d *FTP) Rename(ctx context.Context, path, newName string) error {
-	return d.client.Rename(path, filepath.Join(filepath.Dir(path), newName))
+	return d.client.Rename(path, stdpath.Join(stdpath.Dir(path), newName))
 }
 
 func (d *FTP) MakeDir(ctx context.Context, path string) error {

@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	filepath "path"
+	stdpath "path"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/awserr"
@@ -141,8 +141,8 @@ func (d *S3) copyDir(ctx context.Context, src, dst string) error {
 		return err
 	}
 	for _, file := range files {
-		srcPath := filepath.Join(src, file.Name())
-		dstPath := filepath.Join(dst, file.Name())
+		srcPath := stdpath.Join(src, file.Name())
+		dstPath := stdpath.Join(dst, file.Name())
 		if file.IsDir() {
 			err = d.copyDir(ctx, srcPath, dstPath)
 		} else {
@@ -173,11 +173,11 @@ func (d *S3) Copy(ctx context.Context, src, dst string) error {
 	if info.IsDir() {
 		return d.copyDir(ctx, src, dst)
 	}
-	return d.copyFile(ctx, src, filepath.Join(dst, filepath.Base(src)))
+	return d.copyFile(ctx, src, stdpath.Join(dst, stdpath.Base(src)))
 }
 
 func (d *S3) Rename(ctx context.Context, path, newName string) error {
-	return d.Move(ctx, path, filepath.Join(filepath.Dir(path), newName))
+	return d.Move(ctx, path, stdpath.Join(stdpath.Dir(path), newName))
 }
 
 func (d *S3) removeDir(ctx context.Context, path string) error {
@@ -186,7 +186,7 @@ func (d *S3) removeDir(ctx context.Context, path string) error {
 		return err
 	}
 	for _, file := range files {
-		fpath := filepath.Join(file.Path(), file.Name())
+		fpath := stdpath.Join(file.Path(), file.Name())
 		if file.IsDir() {
 			err = d.removeDir(ctx, fpath)
 		} else {
@@ -302,17 +302,17 @@ func (d *S3) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 			}
 			if len(result.CommonPrefixes)+len(result.Contents) > 0 {
 				info := &emptyinfo{
-					name:  filepath.Base(path),
+					name:  stdpath.Base(path),
 					isDir: true,
 				}
-				return cloudfs.NewFileInfo(info, func(info *cloudfs.Entry) { info.Path = filepath.Dir(path) }), nil
+				return cloudfs.NewFileInfo(info, func(info *cloudfs.Entry) { info.Path = stdpath.Dir(path) }), nil
 			}
 		}
 		return nil, err
 	}
 	return cloudfs.NewFileInfo(
-		&headinfo{name: filepath.Base(path), info: result},
-		func(info *cloudfs.Entry) { info.Path = filepath.Dir(path) },
+		&headinfo{name: stdpath.Base(path), info: result},
+		func(info *cloudfs.Entry) { info.Path = stdpath.Dir(path) },
 	), nil
 }
 

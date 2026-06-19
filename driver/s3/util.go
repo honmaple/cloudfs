@@ -2,7 +2,7 @@ package s3
 
 import (
 	"io/fs"
-	filepath "path"
+	stdpath "path"
 	"strings"
 	"time"
 
@@ -25,7 +25,7 @@ type fileinfo struct {
 	info *s3.Object
 }
 
-func (d *fileinfo) Name() string       { return filepath.Base(*d.info.Key) }
+func (d *fileinfo) Name() string       { return stdpath.Base(*d.info.Key) }
 func (d *fileinfo) Size() int64        { return *d.info.Size }
 func (d *fileinfo) Mode() fs.FileMode  { return 0 }
 func (d *fileinfo) ModTime() time.Time { return *d.info.LastModified }
@@ -36,7 +36,7 @@ type dirinfo struct {
 	info *s3.CommonPrefix
 }
 
-func (d *dirinfo) Name() string       { return filepath.Base(strings.TrimSuffix(*d.info.Prefix, "/")) }
+func (d *dirinfo) Name() string       { return stdpath.Base(strings.TrimSuffix(*d.info.Prefix, "/")) }
 func (d *dirinfo) Size() int64        { return 0 }
 func (d *dirinfo) Mode() fs.FileMode  { return 0 }
 func (d *dirinfo) ModTime() time.Time { return time.Now() }

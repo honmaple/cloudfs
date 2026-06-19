@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	filepath "path"
+	stdpath "path"
 	"strings"
 
 	"github.com/honmaple/cloudfs"
@@ -88,7 +88,7 @@ func (d *encryptFS) getActualPath(path string, isDir bool) string {
 		}
 		return path
 	}
-	path, name := filepath.Dir(path), filepath.Base(path)
+	path, name := stdpath.Dir(path), stdpath.Base(path)
 	if d.opt.DirName {
 		path = d.encryptPath(path)
 	}
@@ -97,7 +97,7 @@ func (d *encryptFS) getActualPath(path string, isDir bool) string {
 	} else if d.opt.Suffix != "" {
 		name = name + d.opt.Suffix
 	}
-	return filepath.Join(path, name)
+	return stdpath.Join(path, name)
 }
 
 func (d *encryptFS) getActualFile(file cloudfs.FileInfo) cloudfs.FileInfo {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
-	filepath "path"
+	stdpath "path"
 
 	"github.com/honmaple/cloudfs/utils/ioutil"
 )
@@ -43,8 +43,8 @@ func CopyDir(ctx context.Context, srcFS FS, src, dst string) error {
 	}
 
 	for _, file := range files {
-		srcPath := filepath.Join(src, file.Name())
-		dstPath := filepath.Join(dst, file.Name())
+		srcPath := stdpath.Join(src, file.Name())
+		dstPath := stdpath.Join(dst, file.Name())
 
 		if file.IsDir() {
 			err = CopyDir(ctx, srcFS, srcPath, dstPath)
@@ -67,14 +67,14 @@ func Copy(ctx context.Context, srcFS FS, src, dst string, opts ...map[string]any
 		if !meta.GetBool("auto_rename") {
 			return err
 		}
-		_, err = srcFS.Stat(ctx, filepath.Dir(dst))
+		_, err = srcFS.Stat(ctx, stdpath.Dir(dst))
 		if err != nil {
 			return err
 		}
 	} else if !dstFile.IsDir() {
 		return &fs.PathError{Op: "copy", Path: dst, Err: errors.New("copy dst must be a dir")}
 	} else {
-		dst = filepath.Join(dst, filepath.Base(src))
+		dst = stdpath.Join(dst, stdpath.Base(src))
 	}
 
 	srcFile, err := srcFS.Stat(ctx, src)
@@ -95,7 +95,7 @@ func walkDir(ctx context.Context, srcFS FS, root string, d FileInfo, walkDirFn W
 		return err
 	}
 
-	files, err := srcFS.List(ctx, filepath.Join(d.Path(), d.Name()))
+	files, err := srcFS.List(ctx, stdpath.Join(d.Path(), d.Name()))
 	if err != nil {
 		err = walkDirFn(root, d, err)
 		if err != nil {
@@ -107,7 +107,7 @@ func walkDir(ctx context.Context, srcFS FS, root string, d FileInfo, walkDirFn W
 		return err
 	}
 	for _, file := range files {
-		name := filepath.Join(root, file.Name())
+		name := stdpath.Join(root, file.Name())
 		if err := walkDir(ctx, srcFS, name, file, walkDirFn); err != nil {
 			if err == fs.SkipDir {
 				break

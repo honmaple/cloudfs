@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"context"
-	filepath "path"
+	stdpath "path"
 	"strings"
 
 	"github.com/honmaple/cloudfs"
@@ -113,7 +113,7 @@ func PrefixFS(prefix string) cloudfs.WrapFunc {
 		}
 		opt := &HookOption{
 			PathFn: func(path string) string {
-				return filepath.Join(prefix, path)
+				return stdpath.Join(prefix, path)
 			},
 			FileFn: func(file cloudfs.FileInfo) (cloudfs.FileInfo, bool) {
 				return cloudfs.NewFileInfo(file, func(info *cloudfs.Entry) { info.Path = strings.TrimPrefix(file.Path(), prefix) }), true
@@ -133,7 +133,7 @@ func TrimPrefixFS(fs cloudfs.FS, prefix string) cloudfs.WrapFunc {
 				return strings.TrimPrefix(path, prefix)
 			},
 			FileFn: func(file cloudfs.FileInfo) (cloudfs.FileInfo, bool) {
-				return cloudfs.NewFileInfo(file, func(info *cloudfs.Entry) { info.Path = filepath.Join(prefix, file.Path()) }), true
+				return cloudfs.NewFileInfo(file, func(info *cloudfs.Entry) { info.Path = stdpath.Join(prefix, file.Path()) }), true
 			},
 		}
 		return newHookFS(fs, opt), nil

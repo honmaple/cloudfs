@@ -9,7 +9,7 @@ import (
 	"os"
 	"strings"
 
-	filepath "path"
+	stdpath "path"
 
 	"github.com/honmaple/cloudfs"
 	"github.com/honmaple/cloudfs/driver"
@@ -108,26 +108,26 @@ func (d *Openlist) Rename(ctx context.Context, path, newName string) error {
 
 func (d *Openlist) Move(ctx context.Context, src, dst string) error {
 	_, err := d.requestWithData(ctx, http.MethodPost, "/api/fs/move", map[string]any{
-		"src_dir": filepath.Dir(src),
+		"src_dir": stdpath.Dir(src),
 		"dst_dir": dst,
-		"names":   []string{filepath.Base(src)},
+		"names":   []string{stdpath.Base(src)},
 	})
 	return err
 }
 
 func (d *Openlist) Copy(ctx context.Context, src, dst string) error {
 	_, err := d.requestWithData(ctx, http.MethodPost, "/api/fs/copy", map[string]any{
-		"src_dir": filepath.Dir(src),
+		"src_dir": stdpath.Dir(src),
 		"dst_dir": dst,
-		"names":   []string{filepath.Base(src)},
+		"names":   []string{stdpath.Base(src)},
 	})
 	return err
 }
 
 func (d *Openlist) Remove(ctx context.Context, path string) error {
 	_, err := d.requestWithData(ctx, http.MethodPost, "/api/fs/remove", map[string]any{
-		"dir":   filepath.Dir(path),
-		"names": []string{filepath.Base(path)},
+		"dir":   stdpath.Dir(path),
+		"names": []string{stdpath.Base(path)},
 	})
 	return err
 }
@@ -155,7 +155,7 @@ func (d *Openlist) Stat(ctx context.Context, path string) (cloudfs.FileInfo, err
 		}
 		return nil, errors.New(msg)
 	}
-	return cloudfs.NewFileInfo(&fileinfo{result.Get("data")}, func(info *cloudfs.Entry) { info.Path = filepath.Dir(path) }), nil
+	return cloudfs.NewFileInfo(&fileinfo{result.Get("data")}, func(info *cloudfs.Entry) { info.Path = stdpath.Dir(path) }), nil
 }
 
 func (d *Openlist) Open(ctx context.Context, path string) (cloudfs.File, error) {

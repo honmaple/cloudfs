@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
-	filepath "path"
+	stdpath "path"
 	"strings"
 
 	"github.com/honmaple/cloudfs"
@@ -132,14 +132,14 @@ func (d *GoogleDrive) resolveParent(ctx context.Context, path string) (*drive.Fi
 	if path == "/" {
 		return nil, "", fs.ErrInvalid
 	}
-	parent, err := d.resolve(ctx, filepath.Dir(path))
+	parent, err := d.resolve(ctx, stdpath.Dir(path))
 	if err != nil {
 		return nil, "", err
 	}
 	if !isDir(parent) {
-		return nil, "", &fs.PathError{Op: "parent", Path: filepath.Dir(path), Err: errors.New("parent must be a dir")}
+		return nil, "", &fs.PathError{Op: "parent", Path: stdpath.Dir(path), Err: errors.New("parent must be a dir")}
 	}
-	return parent, filepath.Base(path), nil
+	return parent, stdpath.Base(path), nil
 }
 
 func (d *GoogleDrive) createFile(ctx context.Context, info *drive.File, r io.Reader, mimeType string) (*drive.File, error) {
@@ -226,7 +226,7 @@ func (d *GoogleDrive) Copy(ctx context.Context, src, dst string) error {
 		return &fs.PathError{Op: "copy", Path: dst, Err: errors.New("copy dst must be a dir")}
 	}
 	if isDir(srcFile) {
-		return cloudfs.CopyDir(ctx, d, src, filepath.Join(dst, filepath.Base(src)))
+		return cloudfs.CopyDir(ctx, d, src, stdpath.Join(dst, stdpath.Base(src)))
 	}
 
 	call := d.client.Files.Copy(srcFile.Id, &drive.File{
@@ -289,7 +289,7 @@ func (d *GoogleDrive) Stat(ctx context.Context, path string) (cloudfs.FileInfo, 
 	if err != nil {
 		return nil, err
 	}
-	return newFile(filepath.Dir(pathutil.CleanPath(path)), file), nil
+	return newFile(stdpath.Dir(pathutil.CleanPath(path)), file), nil
 }
 
 func (d *GoogleDrive) Open(ctx context.Context, path string) (cloudfs.File, error) {

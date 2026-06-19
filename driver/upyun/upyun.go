@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 
-	filepath "path"
+	stdpath "path"
 
 	"github.com/honmaple/cloudfs"
 	"github.com/honmaple/cloudfs/driver"
@@ -58,21 +58,21 @@ func (d *Upyun) List(ctx context.Context, path string, opts ...cloudfs.ListOptio
 func (d *Upyun) Rename(ctx context.Context, path, newName string) error {
 	return d.client.Move(&upyun.MoveObjectConfig{
 		SrcPath:  path,
-		DestPath: filepath.Join(filepath.Dir(path), newName),
+		DestPath: stdpath.Join(stdpath.Dir(path), newName),
 	})
 }
 
 func (d *Upyun) Move(ctx context.Context, src, dst string) error {
 	return d.client.Move(&upyun.MoveObjectConfig{
 		SrcPath:  src,
-		DestPath: filepath.Join(dst, filepath.Base(src)),
+		DestPath: stdpath.Join(dst, stdpath.Base(src)),
 	})
 }
 
 func (d *Upyun) Copy(ctx context.Context, src, dst string) error {
 	return d.client.Copy(&upyun.CopyObjectConfig{
 		SrcPath:  src,
-		DestPath: filepath.Join(dst, filepath.Base(src)),
+		DestPath: stdpath.Join(dst, stdpath.Base(src)),
 	})
 }
 
@@ -92,7 +92,7 @@ func (d *Upyun) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error)
 	if err != nil {
 		return nil, err
 	}
-	return cloudfs.NewFileInfo(&fileinfo{info}, func(info *cloudfs.Entry) { info.Path = filepath.Dir(path) }), nil
+	return cloudfs.NewFileInfo(&fileinfo{info}, func(info *cloudfs.Entry) { info.Path = stdpath.Dir(path) }), nil
 }
 
 func (d *Upyun) Open(ctx context.Context, path string) (cloudfs.File, error) {

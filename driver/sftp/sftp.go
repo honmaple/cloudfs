@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 
-	filepath "path"
+	stdpath "path"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
@@ -122,8 +122,8 @@ func (d *SFTP) copyDir(ctx context.Context, src, dst string) error {
 	}
 
 	for _, file := range files {
-		srcPath := filepath.Join(src, file.Name())
-		dstPath := filepath.Join(dst, file.Name())
+		srcPath := stdpath.Join(src, file.Name())
+		dstPath := stdpath.Join(dst, file.Name())
 
 		if file.IsDir() {
 			err = d.copyDir(ctx, srcPath, dstPath)
@@ -144,7 +144,7 @@ func (d *SFTP) Copy(ctx context.Context, src, dst string) error {
 	} else if !dstFile.IsDir() {
 		return &fs.PathError{Op: "copy", Path: dst, Err: errors.New("copy dst must be a dir")}
 	} else {
-		dst = filepath.Join(dst, filepath.Base(src))
+		dst = stdpath.Join(dst, stdpath.Base(src))
 	}
 
 	srcFile, err := d.Stat(ctx, src)
@@ -158,7 +158,7 @@ func (d *SFTP) Copy(ctx context.Context, src, dst string) error {
 }
 
 func (d *SFTP) Rename(ctx context.Context, path, newName string) error {
-	return d.client.Rename(path, filepath.Join(filepath.Dir(path), newName))
+	return d.client.Rename(path, stdpath.Join(stdpath.Dir(path), newName))
 }
 
 func (d *SFTP) MakeDir(ctx context.Context, path string) error {
@@ -175,7 +175,7 @@ func (d *SFTP) removeDir(path string) error {
 		return err
 	}
 	for _, file := range files {
-		dstPath := filepath.Join(path, file.Name())
+		dstPath := stdpath.Join(path, file.Name())
 		if file.IsDir() {
 			err = d.removeDir(dstPath)
 		} else {

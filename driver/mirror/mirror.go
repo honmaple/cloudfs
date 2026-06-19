@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	filepath "path"
+	stdpath "path"
 
 	"github.com/PuerkitoBio/goquery"
 	"github.com/honmaple/cloudfs"
@@ -85,7 +85,7 @@ func (d *Mirror) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error
 	}
 
 	info := &fileinfo{
-		name: filepath.Base(path),
+		name: stdpath.Base(path),
 	}
 	if typ := resp.Header.Get("Content-Type"); strings.HasPrefix(typ, "text/html") {
 		info.isDir = true

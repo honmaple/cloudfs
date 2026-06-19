@@ -7,7 +7,7 @@ import (
 	"io/fs"
 	"os"
 
-	filepath "path"
+	stdpath "path"
 
 	"github.com/honmaple/cloudfs"
 	"github.com/honmaple/cloudfs/driver"
@@ -55,7 +55,7 @@ func (d *Webdav) Move(ctx context.Context, src, dst string) error {
 	} else if !dstFile.IsDir() {
 		return &fs.PathError{Op: "move", Path: dst, Err: errors.New("move dst must be a dir")}
 	} else {
-		dst = filepath.Join(dst, filepath.Base(src))
+		dst = stdpath.Join(dst, stdpath.Base(src))
 	}
 	return d.client.Rename(src, dst, false)
 }
@@ -67,13 +67,13 @@ func (d *Webdav) Copy(ctx context.Context, src, dst string) error {
 	} else if !dstFile.IsDir() {
 		return &fs.PathError{Op: "copy", Path: dst, Err: errors.New("copy dst must be a dir")}
 	} else {
-		dst = filepath.Join(dst, filepath.Base(src))
+		dst = stdpath.Join(dst, stdpath.Base(src))
 	}
 	return d.client.Copy(src, dst, false)
 }
 
 func (d *Webdav) Rename(ctx context.Context, path, newName string) error {
-	return d.client.Rename(path, filepath.Join(filepath.Dir(path), newName), false)
+	return d.client.Rename(path, stdpath.Join(stdpath.Dir(path), newName), false)
 }
 
 func (d *Webdav) Remove(ctx context.Context, path string) error {
@@ -121,8 +121,8 @@ func (d *Webdav) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error
 	}
 	// 绿联webdav stat无法获取文件名
 	return cloudfs.NewFileInfo(
-		&fileinfo{FileInfo: fi, name: filepath.Base(path)},
-		func(info *cloudfs.Entry) { info.Path = filepath.Dir(path) },
+		&fileinfo{FileInfo: fi, name: stdpath.Base(path)},
+		func(info *cloudfs.Entry) { info.Path = stdpath.Dir(path) },
 	), nil
 }
 

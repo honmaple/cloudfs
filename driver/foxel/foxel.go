@@ -8,7 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
-	filepath "path"
+	stdpath "path"
 	"strings"
 
 	"github.com/honmaple/cloudfs"
@@ -202,8 +202,8 @@ func (d *Foxel) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error)
 		return nil, err
 	}
 	return cloudfs.NewFileInfo(
-		&fileinfo{info: data, name: filepath.Base(path)},
-		func(info *cloudfs.Entry) { info.Path = filepath.Dir(path) },
+		&fileinfo{info: data, name: stdpath.Base(path)},
+		func(info *cloudfs.Entry) { info.Path = stdpath.Dir(path) },
 	), nil
 }
 
@@ -261,7 +261,7 @@ func (d *Foxel) Create(ctx context.Context, path string) (cloudfs.FileWriter, er
 		go func() {
 			defer close(writeErrCh)
 
-			part, err := mpWriter.CreateFormFile("file", filepath.Base(path))
+			part, err := mpWriter.CreateFormFile("file", stdpath.Base(path))
 			if err != nil {
 				_ = bodyWriter.CloseWithError(err)
 				writeErrCh <- err
@@ -316,7 +316,7 @@ func (d *Foxel) Create(ctx context.Context, path string) (cloudfs.FileWriter, er
 }
 
 func (d *Foxel) Rename(ctx context.Context, path, newName string) error {
-	dst := filepath.Join(filepath.Dir(path), newName)
+	dst := stdpath.Join(stdpath.Dir(path), newName)
 	_, err := d.requestJSON(ctx, http.MethodPost, "/api/fs/rename", func() []httputil.Option {
 		return []httputil.Option{
 			httputil.WithQueryParams(map[string]string{"overwrite": "true"}),
@@ -330,7 +330,7 @@ func (d *Foxel) Rename(ctx context.Context, path, newName string) error {
 }
 
 func (d *Foxel) Move(ctx context.Context, src, dst string) error {
-	dst = filepath.Join(dst, filepath.Base(src))
+	dst = stdpath.Join(dst, stdpath.Base(src))
 	_, err := d.requestJSON(ctx, http.MethodPost, "/api/fs/move", func() []httputil.Option {
 		return []httputil.Option{
 			httputil.WithQueryParams(map[string]string{"overwrite": "true"}),
@@ -344,7 +344,7 @@ func (d *Foxel) Move(ctx context.Context, src, dst string) error {
 }
 
 func (d *Foxel) Copy(ctx context.Context, src, dst string) error {
-	dst = filepath.Join(dst, filepath.Base(src))
+	dst = stdpath.Join(dst, stdpath.Base(src))
 	_, err := d.requestJSON(ctx, http.MethodPost, "/api/fs/copy", func() []httputil.Option {
 		return []httputil.Option{
 			httputil.WithQueryParams(map[string]string{"overwrite": "true"}),

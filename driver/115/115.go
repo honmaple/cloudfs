@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 
-	filepath "path"
+	stdpath "path"
 
 	driver115 "github.com/SheltonZhu/115driver/pkg/driver"
 	"github.com/honmaple/cloudfs"
@@ -83,7 +83,7 @@ func (d *Pan115) Copy(ctx context.Context, src, dst string) error {
 }
 
 func (d *Pan115) MakeDir(ctx context.Context, path string) error {
-	_, err := d.client.Mkdir(filepath.Dir(path), filepath.Base(path))
+	_, err := d.client.Mkdir(stdpath.Dir(path), stdpath.Base(path))
 	return err
 }
 

@@ -10,7 +10,7 @@ import (
 	"io/fs"
 	"net/http"
 	"net/url"
-	filepath "path"
+	stdpath "path"
 	"strconv"
 	"strings"
 	"time"
@@ -181,14 +181,14 @@ func (d *OneDrive) resolveParent(ctx context.Context, path string) (*driveItem, 
 	if path == "/" {
 		return nil, "", fs.ErrInvalid
 	}
-	parent, err := d.resolve(ctx, filepath.Dir(path))
+	parent, err := d.resolve(ctx, stdpath.Dir(path))
 	if err != nil {
 		return nil, "", err
 	}
 	if !parent.IsDir() {
-		return nil, "", &fs.PathError{Op: "parent", Path: filepath.Dir(path), Err: errors.New("parent must be a dir")}
+		return nil, "", &fs.PathError{Op: "parent", Path: stdpath.Dir(path), Err: errors.New("parent must be a dir")}
 	}
-	return parent, filepath.Base(path), nil
+	return parent, stdpath.Base(path), nil
 }
 
 func (d *OneDrive) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
@@ -303,7 +303,7 @@ func (d *OneDrive) Stat(ctx context.Context, path string) (cloudfs.FileInfo, err
 	if err != nil {
 		return nil, err
 	}
-	return newFile(filepath.Dir(pathutil.CleanPath(path)), item), nil
+	return newFile(stdpath.Dir(pathutil.CleanPath(path)), item), nil
 }
 
 func (d *OneDrive) Open(ctx context.Context, path string) (cloudfs.File, error) {

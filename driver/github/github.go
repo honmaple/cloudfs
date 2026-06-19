@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	filepath "path"
+	stdpath "path"
 
 	"github.com/google/go-github/v70/github"
 	"github.com/honmaple/cloudfs"
@@ -137,7 +137,7 @@ func (d *Github) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error
 		return newFileInfo(path, ref, 0, true, time.Now()), nil
 	}
 
-	dir, filename := filepath.Dir(actualPath), filepath.Base(actualPath)
+	dir, filename := stdpath.Dir(actualPath), stdpath.Base(actualPath)
 	_, dc, _, err := d.client.Repositories.GetContents(ctx, d.opt.Owner, repo, dir, &github.RepositoryContentGetOptions{
 		Ref: ref,
 	})
@@ -160,7 +160,7 @@ func (d *Github) Open(ctx context.Context, path string) (cloudfs.File, error) {
 		return nil, fmt.Errorf("can't open %s", path)
 	}
 
-	dir, filename := filepath.Dir(actualPath), filepath.Base(actualPath)
+	dir, filename := stdpath.Dir(actualPath), stdpath.Base(actualPath)
 	_, dc, _, err := d.client.Repositories.GetContents(ctx, d.opt.Owner, repo, dir, &github.RepositoryContentGetOptions{
 		Ref: ref,
 	})

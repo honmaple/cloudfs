@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	filepath "path"
+	stdpath "path"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/honmaple/cloudfs"
@@ -89,11 +89,11 @@ func (d *wrapFS) Copy(ctx context.Context, src, dst string) error {
 }
 
 func (d *wrapFS) MakeDir(ctx context.Context, path string) error {
-	actualPath, err := d.getActualPath(ctx, filepath.Dir(path))
+	actualPath, err := d.getActualPath(ctx, stdpath.Dir(path))
 	if err != nil {
 		return err
 	}
-	return d.FS.MakeDir(ctx, filepath.Join(actualPath, filepath.Base(path)))
+	return d.FS.MakeDir(ctx, stdpath.Join(actualPath, stdpath.Base(path)))
 }
 
 func (d *wrapFS) Remove(ctx context.Context, path string) error {
@@ -122,9 +122,9 @@ func (d *wrapFS) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error
 		return file, nil
 	}
 
-	dir, name := filepath.Split(path)
+	dir, name := stdpath.Split(path)
 
-	files, err := d.List(ctx, filepath.Clean(dir))
+	files, err := d.List(ctx, stdpath.Clean(dir))
 	if err != nil {
 		return nil, err
 	}
