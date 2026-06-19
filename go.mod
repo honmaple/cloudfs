@@ -3,6 +3,7 @@ module github.com/honmaple/cloudfs
 go 1.25.8
 
 require (
+	github.com/PuerkitoBio/goquery v1.12.0
 	github.com/SheltonZhu/115driver v1.3.3
 	github.com/aws/aws-sdk-go v1.55.8
 	github.com/go-playground/locales v0.14.1
@@ -31,6 +32,7 @@ require (
 	github.com/aead/ecdh v0.2.0 // indirect
 	github.com/aliyun/aliyun-oss-go-sdk v3.0.2+incompatible // indirect
 	github.com/andreburgaud/crypt2go v1.1.0 // indirect
+	github.com/andybalholm/cascadia v1.3.3 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
