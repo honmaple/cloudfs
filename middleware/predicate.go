@@ -9,23 +9,23 @@ import (
 	"github.com/honmaple/cloudfs/utils/pathutil"
 )
 
-type HookOption struct {
+type PredicateOption struct {
 	PathFn func(string) string
 	FileFn func(cloudfs.FileInfo) (cloudfs.FileInfo, bool)
 }
 
-func (opt *HookOption) NewFS(fs cloudfs.FS) (cloudfs.FS, error) {
-	return newHookFS(fs, opt), nil
+func (opt *PredicateOption) NewFS(fs cloudfs.FS) (cloudfs.FS, error) {
+	return newPredicateFS(fs, opt), nil
 }
 
-type hookFS struct {
+type predicateFS struct {
 	cloudfs.FS
-	opt *HookOption
+	opt *PredicateOption
 }
 
-var _ cloudfs.FS = (*hookFS)(nil)
+var _ cloudfs.FS = (*predicateFS)(nil)
 
-func (d *hookFS) getActualPath(path string) string {
+func (d *predicateFS) getActualPath(path string) string {
 	path = pathutil.CleanPath(path)
 	if d.opt.PathFn == nil {
 		return path
@@ -33,14 +33,14 @@ func (d *hookFS) getActualPath(path string) string {
 	return d.opt.PathFn(path)
 }
 
-func (d *hookFS) getActualFile(file cloudfs.FileInfo) (cloudfs.FileInfo, bool) {
+func (d *predicateFS) getActualFile(file cloudfs.FileInfo) (cloudfs.FileInfo, bool) {
 	if d.opt.FileFn == nil {
 		return file, true
 	}
 	return d.opt.FileFn(file)
 }
 
-func (d *hookFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *predicateFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	files, err := d.FS.List(ctx, d.getActualPath(path), opts...)
 	if err != nil {
 		return nil, err
@@ -60,7 +60,7 @@ func (d *hookFS) List(ctx context.Context, path string, opts ...cloudfs.ListOpti
 	return newFiles, nil
 }
 
-func (d *hookFS) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
+func (d *predicateFS) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	file, err := d.FS.Stat(ctx, d.getActualPath(path))
 	if err != nil {
 		return nil, err
@@ -70,39 +70,39 @@ func (d *hookFS) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error
 	return newFile, nil
 }
 
-func (d *hookFS) Open(ctx context.Context, path string) (cloudfs.File, error) {
+func (d *predicateFS) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	return d.FS.Open(ctx, d.getActualPath(path))
 }
 
-func (d *hookFS) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
+func (d *predicateFS) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
 	return d.FS.Create(ctx, d.getActualPath(path))
 }
 
-func (d *hookFS) Copy(ctx context.Context, src string, dst string) error {
+func (d *predicateFS) Copy(ctx context.Context, src string, dst string) error {
 	return d.FS.Copy(ctx, d.getActualPath(src), d.getActualPath(dst))
 }
 
-func (d *hookFS) Move(ctx context.Context, src string, dst string) error {
+func (d *predicateFS) Move(ctx context.Context, src string, dst string) error {
 	return d.FS.Move(ctx, d.getActualPath(src), d.getActualPath(dst))
 }
 
-func (d *hookFS) Rename(ctx context.Context, path, newName string) error {
+func (d *predicateFS) Rename(ctx context.Context, path, newName string) error {
 	return d.FS.Rename(ctx, d.getActualPath(path), newName)
 }
 
-func (d *hookFS) Remove(ctx context.Context, path string) error {
+func (d *predicateFS) Remove(ctx context.Context, path string) error {
 	return d.FS.Remove(ctx, d.getActualPath(path))
 }
 
-func (d *hookFS) MakeDir(ctx context.Context, path string) error {
+func (d *predicateFS) MakeDir(ctx context.Context, path string) error {
 	return d.FS.MakeDir(ctx, d.getActualPath(path))
 }
 
-func newHookFS(fs cloudfs.FS, opt *HookOption) cloudfs.FS {
-	return &hookFS{FS: fs, opt: opt}
+func newPredicateFS(fs cloudfs.FS, opt *PredicateOption) cloudfs.FS {
+	return &predicateFS{FS: fs, opt: opt}
 }
 
-func HookFS(opt *HookOption) cloudfs.WrapFunc {
+func PredicateFS(opt *PredicateOption) cloudfs.WrapFunc {
 	return opt.NewFS
 }
 
@@ -111,7 +111,7 @@ func PrefixFS(prefix string) cloudfs.WrapFunc {
 		if prefix == "" {
 			return fs, nil
 		}
-		opt := &HookOption{
+		opt := &PredicateOption{
 			PathFn: func(path string) string {
 				return stdpath.Join(prefix, path)
 			},
@@ -119,7 +119,7 @@ func PrefixFS(prefix string) cloudfs.WrapFunc {
 				return cloudfs.NewFileInfo(file, func(info *cloudfs.Entry) { info.Path = strings.TrimPrefix(file.Path(), prefix) }), true
 			},
 		}
-		return newHookFS(fs, opt), nil
+		return newPredicateFS(fs, opt), nil
 	}
 }
 
@@ -128,7 +128,7 @@ func TrimPrefixFS(fs cloudfs.FS, prefix string) cloudfs.WrapFunc {
 		if prefix == "" {
 			return fs, nil
 		}
-		opt := &HookOption{
+		opt := &PredicateOption{
 			PathFn: func(path string) string {
 				return strings.TrimPrefix(path, prefix)
 			},
@@ -136,6 +136,6 @@ func TrimPrefixFS(fs cloudfs.FS, prefix string) cloudfs.WrapFunc {
 				return cloudfs.NewFileInfo(file, func(info *cloudfs.Entry) { info.Path = stdpath.Join(prefix, file.Path()) }), true
 			},
 		}
-		return newHookFS(fs, opt), nil
+		return newPredicateFS(fs, opt), nil
 	}
 }
