@@ -41,7 +41,8 @@ func (d *Mirror) getURL(path string) string {
 	return strings.TrimSuffix(d.opt.Endpoint, "/") + path
 }
 
-func (d *Mirror) List(ctx context.Context, path string, _ ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *Mirror) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, _ = cloudfs.ParsePath(path)
 	resp, err := d.client.Request(http.MethodGet, d.getURL(path), httputil.WithContext(ctx))
 	if err != nil {
 		return nil, err

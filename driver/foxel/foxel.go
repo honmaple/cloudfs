@@ -161,7 +161,8 @@ func (d *Foxel) requestJSON(ctx context.Context, method, url string, buildOpts f
 	return gjson.Result{}, errors.New("请求失败")
 }
 
-func (d *Foxel) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *Foxel) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, _ = cloudfs.ParsePath(path)
 	files := make([]cloudfs.FileInfo, 0)
 
 	pageSize := 500

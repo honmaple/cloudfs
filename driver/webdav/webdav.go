@@ -35,7 +35,8 @@ type Webdav struct {
 
 var _ cloudfs.FS = (*Webdav)(nil)
 
-func (d *Webdav) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *Webdav) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, _ = cloudfs.ParsePath(path)
 	infos, err := d.client.ReadDir(path)
 	if err != nil {
 		return nil, err

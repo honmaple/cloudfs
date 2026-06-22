@@ -177,7 +177,8 @@ func (d *Github) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	return nil, fmt.Errorf("no file named %s found in %s", filename, dir)
 }
 
-func (d *Github) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *Github) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, _ = cloudfs.ParsePath(path)
 	repo, ref, actualPath := d.getActualPath(path)
 
 	if repo == "" {

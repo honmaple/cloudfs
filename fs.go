@@ -6,7 +6,7 @@ import (
 
 type (
 	FS interface {
-		List(context.Context, string, ...ListOption) ([]FileInfo, error)
+		List(context.Context, string) ([]FileInfo, error)
 		Move(context.Context, string, string) error
 		Copy(context.Context, string, string) error
 		Rename(context.Context, string, string) error
@@ -22,7 +22,7 @@ type (
 
 type BaseFS struct{}
 
-func (BaseFS) List(context.Context, string, ...ListOption) ([]FileInfo, error) {
+func (BaseFS) List(context.Context, string) ([]FileInfo, error) {
 	return nil, ErrNotSupport
 }
 func (BaseFS) Move(context.Context, string, string) error         { return ErrNotSupport }

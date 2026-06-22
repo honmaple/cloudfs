@@ -39,14 +39,14 @@ type Pan115 struct {
 
 var _ cloudfs.FS = (*Pan115)(nil)
 
-func (d *Pan115) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
-	meta := cloudfs.ListOptions(opts...)
+func (d *Pan115) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, query := cloudfs.ParsePath(path)
 
-	limit := meta.GetInt64("page_size")
+	limit := query.GetInt64("page_size")
 	if limit == 0 {
 		limit = 50
 	}
-	results, err := d.client.ListPage(path, meta.GetInt64("offset"), limit)
+	results, err := d.client.ListPage(path, query.GetInt64("offset"), limit)
 	if err != nil {
 		return nil, err
 	}

@@ -82,7 +82,8 @@ func (d *FTP) Create(ctx context.Context, path string) (cloudfs.FileWriter, erro
 	return w, nil
 }
 
-func (d *FTP) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *FTP) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, _ = cloudfs.ParsePath(path)
 	entries, err := d.client.List(path)
 	if err != nil {
 		return nil, err

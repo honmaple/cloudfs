@@ -45,7 +45,8 @@ func (d *Local) getActualFile(file cloudfs.FileInfo) cloudfs.FileInfo {
 	return cloudfs.NewFileInfo(file, func(info *cloudfs.Entry) { info.Path = filepath.ToSlash(file.Path()) })
 }
 
-func (d *Local) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *Local) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, _ = cloudfs.ParsePath(path)
 	entries, err := os.ReadDir(d.getActualPath(path))
 	if err != nil {
 		return nil, err

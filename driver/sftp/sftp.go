@@ -57,7 +57,8 @@ func (d *SFTP) Create(ctx context.Context, path string) (cloudfs.FileWriter, err
 	return d.client.Create(path)
 }
 
-func (d *SFTP) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *SFTP) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, _ = cloudfs.ParsePath(path)
 	infos, err := d.client.ReadDir(path)
 	if err != nil {
 		return nil, err

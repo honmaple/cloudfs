@@ -34,12 +34,13 @@ func (d *wrapFS) getActualPath(ctx context.Context, path string) (string, error)
 	return cf.GetString("id"), nil
 }
 
-func (d *wrapFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *wrapFS) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, query := cloudfs.ParsePath(path)
 	actualPath, err := d.getActualPath(ctx, path)
 	if err != nil {
 		return nil, err
 	}
-	files, err := d.FS.List(ctx, actualPath, opts...)
+	files, err := d.FS.List(ctx, cloudfs.PathWithQuery(actualPath, query))
 	if err != nil {
 		return nil, err
 	}

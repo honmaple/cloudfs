@@ -130,7 +130,8 @@ err := driver.VerifyOption("s3", `{"endpoint":"https://s3.example.com","bucket":
 ## Common Operations
 
 All paths use slash-separated absolute-style paths such as `/`, `/dir`, and
-`/dir/file.txt`.
+`/dir/file.txt`. `List` options are passed as query parameters on the path,
+for example `/dir?offset=50&page_size=50`.
 
 ```go
 ctx := context.Background()

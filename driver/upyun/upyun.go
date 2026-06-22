@@ -43,7 +43,8 @@ func newFileInfo(path string, info *upyun.FileInfo) cloudfs.FileInfo {
 	return entry.FileInfo()
 }
 
-func (d *Upyun) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *Upyun) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, _ = cloudfs.ParsePath(path)
 	errs := make(chan error, 1)
 	defer close(errs)
 

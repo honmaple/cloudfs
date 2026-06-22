@@ -26,13 +26,13 @@ type cacheFS struct {
 
 var _ cloudfs.FS = (*cacheFS)(nil)
 
-func (d *cacheFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *cacheFS) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
 	files, ok := d.cache.Get(path)
 	if ok {
 		return files, nil
 	}
 
-	files, err := d.FS.List(ctx, path, opts...)
+	files, err := d.FS.List(ctx, path)
 	if err != nil {
 		return nil, err
 	}

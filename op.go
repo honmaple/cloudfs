@@ -58,15 +58,9 @@ func CopyDir(ctx context.Context, srcFS FS, src, dst string) error {
 	return nil
 }
 
-func Copy(ctx context.Context, srcFS FS, src, dst string, opts ...map[string]any) error {
-	meta := NewOption(opts...)
-
+func Copy(ctx context.Context, srcFS FS, src, dst string) error {
 	dstFile, err := srcFS.Stat(ctx, dst)
 	if err != nil {
-		// 复制并重命名
-		if !meta.GetBool("auto_rename") {
-			return err
-		}
 		_, err = srcFS.Stat(ctx, stdpath.Dir(dst))
 		if err != nil {
 			return err

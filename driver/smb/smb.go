@@ -58,7 +58,8 @@ func (d *SMB) Create(ctx context.Context, path string) (cloudfs.FileWriter, erro
 	return d.client.Create(path)
 }
 
-func (d *SMB) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *SMB) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, _ = cloudfs.ParsePath(path)
 	infos, err := d.client.ReadDir(path)
 	if err != nil {
 		return nil, err

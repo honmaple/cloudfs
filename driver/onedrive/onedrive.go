@@ -191,7 +191,8 @@ func (d *OneDrive) resolveParent(ctx context.Context, path string) (*driveItem, 
 	return parent, stdpath.Base(path), nil
 }
 
-func (d *OneDrive) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *OneDrive) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, _ = cloudfs.ParsePath(path)
 	parent, err := d.resolve(ctx, path)
 	if err != nil {
 		return nil, err

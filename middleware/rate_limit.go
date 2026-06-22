@@ -43,11 +43,11 @@ func (d *rateLimiteFS) checkLimit(ctx context.Context) error {
 	return nil
 }
 
-func (d *rateLimiteFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *rateLimiteFS) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
 	if err := d.checkLimit(ctx); err != nil {
 		return nil, err
 	}
-	return d.FS.List(ctx, path, opts...)
+	return d.FS.List(ctx, path)
 }
 
 func (d *rateLimiteFS) Copy(ctx context.Context, src, dst string) error {

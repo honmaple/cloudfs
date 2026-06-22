@@ -40,8 +40,9 @@ func (d *predicateFS) getActualFile(file cloudfs.FileInfo) (cloudfs.FileInfo, bo
 	return d.opt.FileFn(file)
 }
 
-func (d *predicateFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
-	files, err := d.FS.List(ctx, d.getActualPath(path), opts...)
+func (d *predicateFS) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, query := cloudfs.ParsePath(path)
+	files, err := d.FS.List(ctx, cloudfs.PathWithQuery(d.getActualPath(path), query))
 	if err != nil {
 		return nil, err
 	}

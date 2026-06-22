@@ -167,7 +167,8 @@ func (d *GoogleDrive) updateFile(ctx context.Context, id string, info *drive.Fil
 	return call.Context(ctx).Do()
 }
 
-func (d *GoogleDrive) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *GoogleDrive) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, _ = cloudfs.ParsePath(path)
 	parent, err := d.resolve(ctx, path)
 	if err != nil {
 		return nil, err

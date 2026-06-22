@@ -81,7 +81,8 @@ func (d *Quark) requestWithData(ctx context.Context, method, url string, data ma
 	return io.ReadAll(r)
 }
 
-func (d *Quark) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *Quark) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, _ = cloudfs.ParsePath(path)
 	r, err := d.request(ctx, http.MethodGet, "/file/sort", httputil.WithQueryParams(map[string]string{
 		"_page":        "1",
 		"_size":        "50",

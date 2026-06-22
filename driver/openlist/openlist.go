@@ -87,14 +87,14 @@ func (d *Openlist) requestWithData(ctx context.Context, method, url string, data
 	return io.ReadAll(r)
 }
 
-func (d *Openlist) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
-	meta := cloudfs.ListOptions(opts...)
+func (d *Openlist) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, query := cloudfs.ParsePath(path)
 
 	resp, err := d.requestWithData(ctx, http.MethodPost, "/api/fs/list", map[string]any{
 		"page":     1,
 		"per_page": 0,
 		"path":     path,
-		"password": meta.GetString("password"),
+		"password": query.GetString("password"),
 		"refresh":  false,
 	})
 	if err != nil {

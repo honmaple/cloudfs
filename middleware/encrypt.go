@@ -138,11 +138,12 @@ func (d *encryptFS) getActualFile(file cloudfs.FileInfo) cloudfs.FileInfo {
 	})
 }
 
-func (d *encryptFS) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *encryptFS) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, query := cloudfs.ParsePath(path)
 	// 加密目录名称
 	actualPath := d.getActualPath(path, true)
 
-	files, err := d.FS.List(ctx, actualPath, opts...)
+	files, err := d.FS.List(ctx, cloudfs.PathWithQuery(actualPath, query))
 	if err != nil {
 		return nil, err
 	}

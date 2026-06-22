@@ -179,7 +179,8 @@ func (d *GithubRelease) Open(ctx context.Context, path string) (cloudfs.File, er
 	return d.download(ctx, result.GetBrowserDownloadURL(), int64(result.GetSize()))
 }
 
-func (d *GithubRelease) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
+func (d *GithubRelease) List(ctx context.Context, path string) ([]cloudfs.FileInfo, error) {
+	path, _ = cloudfs.ParsePath(path)
 	repo, release, actualPath := d.getActualPath(path)
 
 	if repo == "" {
