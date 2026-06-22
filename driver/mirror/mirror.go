@@ -84,12 +84,13 @@ func (d *Mirror) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error
 		return nil, fmt.Errorf("bad status: %d", resp.StatusCode)
 	}
 
-	info := &fileinfo{
-		name: stdpath.Base(path),
+	entry := &cloudfs.Entry{
+		Path: stdpath.Dir(path),
+		Name: stdpath.Base(path),
 	}
 	if typ := resp.Header.Get("Content-Type"); strings.HasPrefix(typ, "text/html") {
-		info.isDir = true
-		return newFile(path, info), nil
+		entry.IsDir = true
+		return entry.FileInfo(), nil
 	}
 
 	size, err := strconv.Atoi(resp.Header.Get("Content-Length"))
@@ -100,9 +101,9 @@ func (d *Mirror) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error
 	if err != nil {
 		return nil, err
 	}
-	info.size = int64(size)
-	info.modTime = modTime
-	return newFile(path, info), nil
+	entry.Size = int64(size)
+	entry.ModTime = modTime
+	return entry.FileInfo(), nil
 }
 
 func (d *Mirror) Open(ctx context.Context, path string) (cloudfs.File, error) {

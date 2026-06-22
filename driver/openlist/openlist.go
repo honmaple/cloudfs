@@ -38,6 +38,17 @@ type Openlist struct {
 
 var _ cloudfs.FS = (*Openlist)(nil)
 
+func newFileInfo(path string, info gjson.Result) cloudfs.FileInfo {
+	entry := &cloudfs.Entry{
+		Path:    path,
+		Name:    info.Get("name").String(),
+		Size:    info.Get("size").Int(),
+		IsDir:   info.Get("is_dir").Bool(),
+		ModTime: info.Get("modified").Time(),
+	}
+	return entry.FileInfo()
+}
+
 func (d *Openlist) request(ctx context.Context, method, url string, opts ...httputil.Option) (io.ReadCloser, error) {
 	if strings.HasPrefix(url, "/") {
 		url = strings.TrimSuffix(d.opt.Endpoint, "/") + url
@@ -93,7 +104,7 @@ func (d *Openlist) List(ctx context.Context, path string, opts ...cloudfs.ListOp
 
 	files := make([]cloudfs.FileInfo, len(results))
 	for i, result := range results {
-		files[i] = cloudfs.NewFileInfo(&fileinfo{result}, func(info *cloudfs.Entry) { info.Path = path })
+		files[i] = newFileInfo(path, result)
 	}
 	return files, nil
 }
@@ -155,7 +166,7 @@ func (d *Openlist) Stat(ctx context.Context, path string) (cloudfs.FileInfo, err
 		}
 		return nil, errors.New(msg)
 	}
-	return cloudfs.NewFileInfo(&fileinfo{result.Get("data")}, func(info *cloudfs.Entry) { info.Path = stdpath.Dir(path) }), nil
+	return newFileInfo(stdpath.Dir(path), result.Get("data")), nil
 }
 
 func (d *Openlist) Open(ctx context.Context, path string) (cloudfs.File, error) {

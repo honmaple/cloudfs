@@ -35,6 +35,17 @@ type FTP struct {
 
 var _ cloudfs.FS = (*FTP)(nil)
 
+func newFileInfo(path string, info *ftp.Entry) cloudfs.FileInfo {
+	entry := &cloudfs.Entry{
+		Path:    path,
+		Name:    info.Name,
+		Size:    int64(info.Size),
+		IsDir:   info.Type == ftp.EntryTypeFolder,
+		ModTime: info.Time,
+	}
+	return entry.FileInfo()
+}
+
 func (d *FTP) Close() error {
 	return d.client.Logout()
 }
@@ -44,7 +55,7 @@ func (d *FTP) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return cloudfs.NewFileInfo(&fileinfo{info}, func(info *cloudfs.Entry) { info.Path = stdpath.Dir(path) }), nil
+	return newFileInfo(stdpath.Dir(path), info), nil
 }
 
 func (d *FTP) Open(ctx context.Context, path string) (cloudfs.File, error) {
@@ -79,7 +90,7 @@ func (d *FTP) List(ctx context.Context, path string, opts ...cloudfs.ListOption)
 
 	files := make([]cloudfs.FileInfo, len(entries))
 	for i, info := range entries {
-		files[i] = cloudfs.NewFileInfo(&fileinfo{info}, func(info *cloudfs.Entry) { info.Path = path })
+		files[i] = newFileInfo(path, info)
 	}
 	return files, nil
 }

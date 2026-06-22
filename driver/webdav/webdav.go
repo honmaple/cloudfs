@@ -120,10 +120,10 @@ func (d *Webdav) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error
 		return nil, err
 	}
 	// 绿联webdav stat无法获取文件名
-	return cloudfs.NewFileInfo(
-		&fileinfo{FileInfo: fi, name: stdpath.Base(path)},
-		func(info *cloudfs.Entry) { info.Path = stdpath.Dir(path) },
-	), nil
+	return cloudfs.NewFileInfo(fi, func(info *cloudfs.Entry) {
+		info.Path = stdpath.Dir(path)
+		info.Name = stdpath.Base(path)
+	}), nil
 }
 
 func (d *Webdav) Close() error {

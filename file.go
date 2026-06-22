@@ -93,6 +93,30 @@ func (s *seeker) Close() error {
 	return nil
 }
 
+type fileInfoAdapter struct {
+	info *Entry
+}
+
+var _ FileInfo = (*fileInfoAdapter)(nil)
+
+func (f *fileInfoAdapter) Name() string              { return f.info.Name }
+func (f *fileInfoAdapter) Size() int64               { return f.info.Size }
+func (f *fileInfoAdapter) Mode() fs.FileMode         { return f.info.Mode }
+func (f *fileInfoAdapter) ModTime() time.Time        { return f.info.ModTime }
+func (f *fileInfoAdapter) IsDir() bool               { return f.info.IsDir }
+func (f *fileInfoAdapter) Sys() any                  { return nil }
+func (f *fileInfoAdapter) Path() string              { return f.info.Path }
+func (f *fileInfoAdapter) ExtraInfo() map[string]any { return f.info.ExtraInfo }
+func (f *fileInfoAdapter) Type() string {
+	if f.info.Type != "" {
+		return f.info.Type
+	}
+	if f.info.IsDir {
+		return "DIR"
+	}
+	return mime.TypeByExtension(stdpath.Ext(f.info.Name))
+}
+
 type Entry struct {
 	Name      string
 	Type      string
@@ -105,52 +129,12 @@ type Entry struct {
 	Sys       any
 }
 
-func (f *Entry) FileInfo() FileInfo {
-	if f.Path == "" || f.Path == "." {
-		f.Path = "/"
+func (fi *Entry) FileInfo() FileInfo {
+	if fi.Path == "" || fi.Path == "." {
+		fi.Path = "/"
 	}
-	return &fileInfo{
-		name:      f.Name,
-		typ:       f.Type,
-		size:      f.Size,
-		path:      f.Path,
-		mode:      f.Mode,
-		isDir:     f.IsDir,
-		modTime:   f.ModTime,
-		extraInfo: f.ExtraInfo,
-		sys:       f.Sys,
-	}
+	return &fileInfoAdapter{info: fi}
 }
-
-type fileInfo struct {
-	name      string
-	typ       string
-	size      int64
-	path      string
-	mode      fs.FileMode
-	isDir     bool
-	modTime   time.Time
-	extraInfo map[string]any
-	sys       any
-}
-
-func (f *fileInfo) Type() string {
-	if f.typ != "" {
-		return f.typ
-	}
-	if f.isDir {
-		return "DIR"
-	}
-	return mime.TypeByExtension(stdpath.Ext(f.name))
-}
-func (f *fileInfo) Path() string              { return f.path }
-func (f *fileInfo) Name() string              { return f.name }
-func (f *fileInfo) Size() int64               { return f.size }
-func (f *fileInfo) Mode() fs.FileMode         { return f.mode }
-func (f *fileInfo) IsDir() bool               { return f.isDir }
-func (f *fileInfo) ModTime() time.Time        { return f.modTime }
-func (f *fileInfo) Sys() any                  { return f.sys }
-func (f *fileInfo) ExtraInfo() map[string]any { return f.extraInfo }
 
 func NewFileInfo(info fs.FileInfo, opts ...func(*Entry)) FileInfo {
 	fi := &Entry{

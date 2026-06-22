@@ -32,6 +32,17 @@ type Upyun struct {
 
 var _ cloudfs.FS = (*Upyun)(nil)
 
+func newFileInfo(path string, info *upyun.FileInfo) cloudfs.FileInfo {
+	entry := &cloudfs.Entry{
+		Path:    path,
+		Name:    stdpath.Base(info.Name),
+		Size:    info.Size,
+		IsDir:   info.IsDir,
+		ModTime: info.Time,
+	}
+	return entry.FileInfo()
+}
+
 func (d *Upyun) List(ctx context.Context, path string, opts ...cloudfs.ListOption) ([]cloudfs.FileInfo, error) {
 	errs := make(chan error, 1)
 	defer close(errs)
@@ -46,7 +57,7 @@ func (d *Upyun) List(ctx context.Context, path string, opts ...cloudfs.ListOptio
 
 	files := make([]cloudfs.FileInfo, 0)
 	for info := range infos {
-		files = append(files, cloudfs.NewFileInfo(&fileinfo{info}, func(info *cloudfs.Entry) { info.Path = path }))
+		files = append(files, newFileInfo(path, info))
 	}
 
 	if err := <-errs; err != nil {
@@ -92,7 +103,7 @@ func (d *Upyun) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error)
 	if err != nil {
 		return nil, err
 	}
-	return cloudfs.NewFileInfo(&fileinfo{info}, func(info *cloudfs.Entry) { info.Path = stdpath.Dir(path) }), nil
+	return newFileInfo(stdpath.Dir(path), info), nil
 }
 
 func (d *Upyun) Open(ctx context.Context, path string) (cloudfs.File, error) {
