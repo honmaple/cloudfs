@@ -292,6 +292,17 @@ fs, err = cloudfs.New(fs, middleware.CacheFS(&middleware.CacheOption{
 }))
 ```
 
+### PaginationFS
+
+Paginates `List` results with query parameters. `page` is 1-based, and
+pagination is enabled only when `page_size` is greater than 0.
+
+```go
+fs, err = cloudfs.New(fs, middleware.PaginationFS(&middleware.PaginationOption{}))
+
+files, err := fs.List(ctx, "/photos?page=2&page_size=100")
+```
+
 ### RateLimitFS
 
 Limits operation frequency.
@@ -325,14 +336,18 @@ fs, err = cloudfs.New(fs, middleware.EncryptFS(&middleware.EncryptOption{
 }))
 ```
 
-### HookFS
+### PredicateFS
 
-Use `HookFS` when you need custom path or file metadata rewriting.
+Use `PredicateFS` when you need custom path rewriting or want to filter or
+rewrite listed file metadata.
 
 ```go
-fs, err = cloudfs.New(fs, middleware.HookFS(&middleware.HookOption{
+fs, err = cloudfs.New(fs, middleware.PredicateFS(&middleware.PredicateOption{
 	PathFn: func(path string) string {
 		return "/backend" + path
+	},
+	FileFn: func(file cloudfs.FileInfo) (cloudfs.FileInfo, bool) {
+		return file, true
 	},
 }))
 ```
