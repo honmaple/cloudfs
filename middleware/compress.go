@@ -3,6 +3,7 @@ package middleware
 import (
 	"compress/gzip"
 	"context"
+	"errors"
 	"io"
 
 	"github.com/honmaple/cloudfs"
@@ -22,9 +23,7 @@ type WrapWriter struct {
 
 func (w *WrapWriter) Write(p []byte) (n int, err error) { return w.w.Write(p) }
 func (w *WrapWriter) Close() error {
-	w.FileWriter.Close()
-	w.w.Close()
-	return nil
+	return errors.Join(w.w.Close(), w.FileWriter.Close())
 }
 
 type CompressOption struct {

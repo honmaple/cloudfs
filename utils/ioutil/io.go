@@ -11,21 +11,32 @@ type readerFunc func(p []byte) (n int, err error)
 
 func (rf readerFunc) Read(p []byte) (n int, err error) { return rf(p) }
 
-func Copy(ctx context.Context, dst io.Writer, src io.Reader, progress func(int64)) (int64, error) {
-	var written int
+type writerFunc func([]byte) (int, error)
 
-	return io.Copy(dst, readerFunc(func(p []byte) (int, error) {
-		select {
-		case <-ctx.Done():
-			return 0, ctx.Err()
-		default:
-			n, err := src.Read(p)
-			if progress != nil {
-				written += n
-				progress(int64(written))
+func (fn writerFunc) Write(p []byte) (int, error) { return fn(p) }
+
+func Copy(ctx context.Context, dst io.Writer, src io.Reader, progress func(int64)) (int64, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	if progress != nil {
+		progress(0)
+		writer := dst
+		var written int64
+		dst = writerFunc(func(p []byte) (int, error) {
+			n, err := writer.Write(p)
+			if n > 0 {
+				written += int64(n)
+				progress(written)
 			}
 			return n, err
+		})
+	}
+	return io.Copy(dst, readerFunc(func(p []byte) (int, error) {
+		if err := ctx.Err(); err != nil {
+			return 0, err
 		}
+		return src.Read(p)
 	}))
 }
 

@@ -5,6 +5,7 @@ import (
 )
 
 type (
+	// FS uses slash-separated paths rooted at /. Drivers adapt paths to their backend.
 	FS interface {
 		List(context.Context, string) ([]FileInfo, error)
 		Move(context.Context, string, string) error

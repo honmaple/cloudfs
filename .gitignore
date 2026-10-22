@@ -31,3 +31,8 @@ go.work.sum
 # .idea/
 # .vscode/
 _test/
+
+# Local workspace files
+/AGENTS.md
+/cmd/cloudfs/cloudfs
+/docs/design/syncer.md
