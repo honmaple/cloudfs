@@ -1,7 +1,6 @@
 package syncer
 
 import (
-	"context"
 	"crypto"
 	"crypto/sha256"
 	"encoding/hex"
@@ -85,17 +84,6 @@ func (record *Record) withHash(hash string) *Record {
 	return &confirmed
 }
 
-// StateStore persists state for one fixed pair of supplied filesystems.
-// Load returns nil on the first run. Implementations own serialization and must
-// treat loaded and saved state as immutable.
-// Save atomically replaces state; failure must leave an intact old or new value.
-// If cancellation precedes saving, confirmed results are saved using a context
-// with the caller's values and a separate five-second deadline. Honor that context.
-// The caller owns durability and exclusive access to the filesystem pair.
-type StateStore interface {
-	Load(context.Context) (*State, error)
-	Save(context.Context, *State) error
-}
 
 // State contains the confirmed per-side file metadata used as a historical
 // comparison baseline. It may include partial successes, not execution progress.

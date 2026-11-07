@@ -312,34 +312,3 @@ func TestDefaultConfigPrecedenceAndFailure(t *testing.T) {
 		t.Fatal("invalid config allowed writes")
 	}
 }
-
-func TestFileStateStoreReadsExistingEnvelope(t *testing.T) {
-	filename := filepath.Join(t.TempDir(), "state.json")
-	const stored = `{"source":"left","target":"right","metadata":{"hash_algorithm":5,"version":1,"revision":"existing-revision","source":{},"target":{}}}`
-	if err := os.WriteFile(filename, []byte(stored), 0600); err != nil {
-		t.Fatal(err)
-	}
-	store := &fileStateStore{
-		filename: filename,
-		source:   "left",
-		target:   "right",
-	}
-	state, err := store.Load(context.Background())
-	if err != nil || !state.Valid() {
-		t.Fatalf("existing state rejected: %v", err)
-	}
-	if err := store.Save(context.Background(), state); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(data, &fields); err != nil {
-		t.Fatal(err)
-	}
-	if fields["metadata"] == nil || fields["state"] != nil {
-		t.Fatalf("envelope changed: %s", data)
-	}
-}

@@ -402,7 +402,18 @@ type StateStore interface {
 }
 ```
 
-首次加载返回 nil。存储绑定固定、有顺序的一对文件系统，调用方负责持久化及独占执行。`Save` 必须原子替换整份记录，失败后保留完整旧值或新值；内存存储可以保留指针，持久化存储可自行使用 JSON。传入、返回的元数据均应视为只读。库不自动向任一端写状态文件。
+要将状态保存为本地 JSON 文件，可以直接配置 `FileStore`。
+
+```go
+option := syncer.Option{
+    Mode:       syncer.ModeTwoWay,
+    StateStore: syncer.NewFileStore("sync-state.json", "photos-source", "photos-target"),
+}
+```
+
+源端和目标端按顺序使用各自同步根目录的稳定标识。状态文件应放在两端同步范围之外，其父目录须已存在。
+
+首次加载返回 nil。存储绑定固定、有顺序的一对文件系统，调用方负责持久化及独占执行。`Save` 必须原子替换整份记录，失败后保留完整旧值或新值；内存存储可以保留指针，持久化存储可自行使用 JSON。传入、返回的元数据均应视为只读。
 
 `State.Source`、`Target` 为相对路径到 `*Record` 的映射，记录不可为 nil；`Record` 保存 `IsDir`、`Size`、`ModTime`、`Hash`。`HashAlgorithm` 为本次状态使用的 `crypto.Hash`，后续同步沿用该算法；此字段必填。`Version` 当前为 1。`Revision` 是内容修订标识，加载允许非空自定义标识；保存时计算内容哈希，无变化则跳过保存。`UpdatedAt` 为准备保存变化内容的 UTC 时间，部分成功也会更新，不代表整轮同步成功。
 

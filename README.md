@@ -554,6 +554,18 @@ type StateStore interface {
 }
 ```
 
+For local JSON storage, pass a `FileStore` in the sync options.
+
+```go
+option := syncer.Option{
+    Mode:       syncer.ModeTwoWay,
+    StateStore: syncer.NewFileStore("sync-state.json", "photos-source", "photos-target"),
+}
+```
+
+Use stable identifiers for the source and target roots in that order. Place the
+state file outside both sync roots, in an existing directory.
+
 `State.Source` and `State.Target` are `map[string]*syncer.Record`, keyed by
 relative paths. `Record` contains `IsDir`, `Size`, `ModTime`, and `Hash`.
 `State.HashAlgorithm` is the required `crypto.Hash` used by this baseline; subsequent syncs retain it.

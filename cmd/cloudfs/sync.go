@@ -1,14 +1,9 @@
 package main
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"path"
-	"path/filepath"
 
 	"github.com/honmaple/cloudfs"
 	"github.com/honmaple/cloudfs/middleware"
@@ -77,11 +72,11 @@ func prepareSync(c *cli.Context, drivers *driverSet) (cloudfs.FS, cloudfs.FS, sy
 	}
 	var store syncer.StateStore
 	if filename := c.String("state"); filename != "" {
-		store = &fileStateStore{
-			filename: filename,
-			source:   drivers.identity(pair.srcName, pair.src),
-			target:   drivers.identity(pair.dstName, pair.dst),
-		}
+		store = syncer.NewFileStore(
+			filename,
+			drivers.identity(pair.srcName, pair.src),
+			drivers.identity(pair.dstName, pair.dst),
+		)
 	}
 	return srcFS, dstFS, onConflict, store, nil
 }
@@ -144,69 +139,4 @@ func syncPreview(c *cli.Context) syncer.EventHandler {
 			}
 		}
 	}
-}
-
-type fileStateStore struct {
-	filename string
-	source   string
-	target   string
-}
-
-type stateDocument struct {
-	Source string        `json:"source"`
-	Target string        `json:"target"`
-	State  *syncer.State `json:"metadata"`
-}
-
-func (s *fileStateStore) Load(ctx context.Context) (*syncer.State, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(s.filename)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var document stateDocument
-	if json.Unmarshal(data, &document) != nil || document.State == nil {
-		return nil, fmt.Errorf("%w: invalid state file", syncer.ErrSyncState)
-	}
-	if document.Source != s.source || document.Target != s.target {
-		return nil, fmt.Errorf("%w: state file belongs to different endpoints or configuration", syncer.ErrSyncState)
-	}
-	return document.State, nil
-}
-
-func (s *fileStateStore) Save(ctx context.Context, state *syncer.State) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	data, err := json.Marshal(stateDocument{
-		Source: s.source,
-		Target: s.target,
-		State:  state,
-	})
-	if err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(s.filename), ".cloudfs-state-*")
-	if err != nil {
-		return err
-	}
-	name := f.Name()
-	defer os.Remove(name)
-	_, err = f.Write(data)
-	if err == nil {
-		err = f.Sync()
-	}
-	err = errors.Join(err, f.Close())
-	if err != nil {
-		return err
-	}
-	if err = ctx.Err(); err != nil {
-		return err
-	}
-	return os.Rename(name, s.filename)
 }
