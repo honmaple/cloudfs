@@ -75,17 +75,28 @@ type (
 		root    string
 		reverse bool // Write to the original source instead of the target.
 	}
+	taskResult struct {
+		err    error
+		task   *syncTask // Set only on success, including removals.
+		record *Record
+	}
 	// executor owns the filesystems, callbacks and execution state
 	// shared by all tasks in one plan.
 	executor struct {
 		srcFS, dstFS *syncFS
 		option       Option
-		state        *State
 
 		mu      sync.Mutex
 		skipped map[string]bool
 	}
 )
+
+func (task *syncTask) absoluteNewPath() string {
+	if task.newPath == "" {
+		return ""
+	}
+	return "/" + task.newPath
+}
 
 // groupTasks orders preparation, writes, and final deletions for execution and preview.
 func (e *executor) groupTasks(tasks []syncTask) [][]syncTask {
@@ -129,8 +140,9 @@ func (e *executor) dryRun(ctx context.Context, tasks []syncTask) error {
 
 // run completes each operation stage before starting the next. Copies and final
 // file removals share a continuously replenished concurrency limit.
-func (e *executor) run(ctx context.Context, tasks []syncTask) error {
+func (e *executor) run(ctx context.Context, tasks []syncTask) ([]taskResult, error) {
 	e.skipped = make(map[string]bool)
+	results := make([]taskResult, 0, len(tasks))
 	for _, group := range e.groupTasks(tasks) {
 		if len(group) == 0 {
 			continue
@@ -139,20 +151,21 @@ func (e *executor) run(ctx context.Context, tasks []syncTask) error {
 		if group[0].op == OpCopy || group[0].op == OpRemove && !group[0].replace {
 			concurrency = max(1, e.option.Concurrency)
 		}
-		if err := e.parallel(ctx, group, concurrency); err != nil {
-			return err
+		start := len(results)
+		results = results[:start+len(group)]
+		if err := e.parallel(ctx, group, results[start:], concurrency); err != nil {
+			return results, err
 		}
 	}
-	return ctx.Err()
+	return results, ctx.Err()
 }
 
 // parallel stops dispatching on error or cancellation and waits for active tasks.
-func (e *executor) parallel(ctx context.Context, tasks []syncTask, concurrency int) error {
+func (e *executor) parallel(ctx context.Context, tasks []syncTask, results []taskResult, concurrency int) error {
 	eg, dispatchCtx := errgroup.WithContext(ctx)
 	eg.SetLimit(concurrency)
 
-	errs := make([]error, len(tasks))
-	for index, task := range tasks {
+	for index := range tasks {
 		if dispatchCtx.Err() != nil {
 			break
 		}
@@ -163,14 +176,14 @@ func (e *executor) parallel(ctx context.Context, tasks []syncTask, concurrency i
 			}
 			// Keep active operations on the caller context so another failure only
 			// stops new tasks, without canceling operations already in progress.
-			errs[index] = e.execute(ctx, task)
-			return errs[index]
+			results[index] = e.execute(ctx, &tasks[index])
+			return results[index].err
 		})
 	}
 	resultErr := eg.Wait()
-	for _, err := range errs {
-		if err != nil && !errors.Is(resultErr, err) {
-			resultErr = errors.Join(resultErr, err)
+	for _, result := range results {
+		if result.err != nil && !errors.Is(resultErr, result.err) {
+			resultErr = errors.Join(resultErr, result.err)
 		}
 	}
 	if err := ctx.Err(); err != nil && !errors.Is(resultErr, err) {
@@ -179,7 +192,7 @@ func (e *executor) parallel(ctx context.Context, tasks []syncTask, concurrency i
 	return resultErr
 }
 
-func (e *executor) execute(ctx context.Context, task syncTask) error {
+func (e *executor) execute(ctx context.Context, task *syncTask) taskResult {
 	e.mu.Lock()
 	blocked := e.skipped[task.root]
 	for path := task.path; path != "."; path = stdpath.Dir(path) {
@@ -190,53 +203,25 @@ func (e *executor) execute(ctx context.Context, task syncTask) error {
 	}
 	e.mu.Unlock()
 	if blocked {
-		e.notify(&task, StatusSkipped, nil)
-		return nil
+		e.notify(task, StatusSkipped, nil)
+		return taskResult{}
 	}
-	e.notify(&task, StatusStarted, nil)
-	targetRecord, err := e.apply(ctx, &task)
+	e.notify(task, StatusStarted, nil)
+	record, err := e.apply(ctx, task)
 	status := StatusSucceeded
 	if errors.Is(err, errSkipOperation) {
 		status = StatusSkipped
 	} else if err != nil {
 		status = StatusFailed
 	}
-	if err == nil {
-		e.mu.Lock()
-		srcState, dstState := e.state.Source, e.state.Target
-		if task.reverse {
-			srcState, dstState = e.state.Target, e.state.Source
-		}
+	e.notify(task, status, err)
+	switch status {
+	case StatusSucceeded:
 		if task.op == OpRename {
-			dstState[task.newPath] = targetRecord
-			delete(dstState, task.path)
-		} else if targetRecord != nil {
-			srcState[task.path] = task.record.withHash(targetRecord.Hash)
-			dstState[task.path] = targetRecord
-		} else {
-			delete(dstState, task.path)
-			if !task.replace {
-				delete(srcState, task.path)
-			}
-			if task.op == OpRmdir {
-				// The sending side is absent or a replacement file, so neither
-				// side can retain confirmed descendants of the removed directory.
-				for _, records := range []map[string]*Record{srcState, dstState} {
-					for path := range records {
-						if strings.HasPrefix(path, task.path+"/") {
-							delete(records, path)
-						}
-					}
-				}
-			}
+			*task.record = *record
 		}
-		e.mu.Unlock()
-	}
-	e.notify(&task, status, err)
-	if err == nil && task.op == OpRename {
-		*task.record = *targetRecord
-	}
-	if errors.Is(err, errSkipOperation) {
+		return taskResult{task: task, record: record}
+	case StatusSkipped:
 		e.mu.Lock()
 		path := task.path
 		if task.root != "" && (task.op == OpRemove || task.op == OpRmdir || task.op == OpRename) {
@@ -244,13 +229,14 @@ func (e *executor) execute(ctx context.Context, task syncTask) error {
 		}
 		e.skipped[path] = true
 		e.mu.Unlock()
-		return nil
+		return taskResult{}
+	default:
+		return taskResult{err: err}
 	}
-	return err
 }
 
 // apply performs one task and returns the confirmed target record.
-// A successful removal returns nil; execute records the result.
+// A successful removal returns a nil record.
 func (e *executor) apply(ctx context.Context, task *syncTask) (*Record, error) {
 	dstFS := e.dstFS
 	if task.reverse {
@@ -276,7 +262,7 @@ func (e *executor) apply(ctx context.Context, task *syncTask) (*Record, error) {
 		return &Record{Size: info.Size(), ModTime: info.ModTime().UTC(), Hash: copiedHash}, nil
 	case OpRename:
 		if err := e.handleError(ctx, task, func(ctx context.Context) error {
-			if err := dstFS.checkFileSnapshot(ctx, task.path, task.record); err != nil {
+			if err := dstFS.checkSnapshot(ctx, task.path, task.record); err != nil {
 				return err
 			}
 			return dstFS.Rename(ctx, task.path, stdpath.Base(task.newPath))
@@ -312,7 +298,7 @@ func (e *executor) copy(ctx context.Context, task *syncTask) (string, error) {
 	if task.reverse {
 		srcFS, dstFS = e.dstFS, e.srcFS
 	}
-	if err := srcFS.checkFileSnapshot(ctx, task.path, task.record); err != nil {
+	if err := srcFS.checkSnapshot(ctx, task.path, task.record); err != nil {
 		return "", err
 	}
 	reader, err := srcFS.Open(ctx, task.path)
@@ -348,7 +334,7 @@ func (e *executor) copy(ctx context.Context, task *syncTask) (string, error) {
 		return "", err
 	}
 	sum := hex.EncodeToString(hasher.Sum(nil))
-	err = errors.Join(err, srcFS.checkFileSnapshot(ctx, task.path, task.record))
+	err = errors.Join(err, srcFS.checkSnapshot(ctx, task.path, task.record))
 	if task.record.Size >= 0 && n != task.record.Size {
 		err = errors.Join(err, io.ErrUnexpectedEOF)
 	}
@@ -359,13 +345,6 @@ func (e *executor) copy(ctx context.Context, task *syncTask) (string, error) {
 		return "", err
 	}
 	return sum, nil
-}
-
-func (task *syncTask) absoluteNewPath() string {
-	if task.newPath == "" {
-		return ""
-	}
-	return "/" + task.newPath
 }
 
 func (e *executor) notify(task *syncTask, status Status, err error) {

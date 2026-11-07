@@ -220,8 +220,8 @@ func (fsys *syncFS) scan(ctx context.Context, records map[string]*Record) (*sync
 	return tree, nil
 }
 
-// checkFileSnapshot compares metadata only; hashes are checked on existing reads.
-func (fsys *syncFS) checkFileSnapshot(ctx context.Context, path string, record *Record) error {
+// checkSnapshot compares a file's metadata with its recorded snapshot.
+func (fsys *syncFS) checkSnapshot(ctx context.Context, path string, record *Record) error {
 	info, err := fsys.Stat(ctx, path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {

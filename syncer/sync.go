@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/honmaple/cloudfs"
 )
@@ -174,69 +175,76 @@ func (s *syncer) init(ctx context.Context) error {
 	return nil
 }
 
-func (s *syncer) finish(ctx context.Context, state *State) error {
+func (s *syncer) finish(ctx context.Context, results []taskResult) error {
 	if s.option.StateStore == nil {
 		return nil
 	}
-	prevState := s.state
-	srcTree, dstTree := s.srcTree, s.dstTree
-	skip := func(path string) bool {
-		return srcTree.isSkipped(path, false) || dstTree.isSkipped(path, false) || s.skippedConflicts[path]
+	state := &State{
+		Source:        maps.Clone(s.state.Source),
+		Target:        maps.Clone(s.state.Target),
+		Version:       s.state.Version,
+		HashAlgorithm: s.state.HashAlgorithm,
 	}
-	preserveHash := func(record, previous *Record) *Record {
-		if record.Hash == "" && previous != nil && previous.Hash != "" && record.Equal(previous) {
-			copiedRecord := *record
-			copiedRecord.Hash = previous.Hash
-			return &copiedRecord
+	newRecord := func(current *entry) *Record {
+		record := current.toRecord()
+		if record.Hash == "" && current.record != nil && record.Equal(current.record) {
+			record.Hash = current.record.Hash
 		}
 		return record
 	}
-	srcTree.walk(func(path string, src *entry) error {
-		if skip(path) {
+
+	// Refresh pairs that agree or still match their respective baselines.
+	s.srcTree.walk(func(path string, src *entry) error {
+		if s.dstTree.isSkipped(path, false) || s.skippedConflicts[path] {
 			if src.IsDir() {
 				return fs.SkipDir
 			}
 			return nil
 		}
-		dst := dstTree.get(path)
-		if dst == nil {
+		dst := s.dstTree.get(path)
+		if dst == nil || (!src.Equal(dst) && (src.isChanged() || dst.isChanged())) {
 			return nil
 		}
-		// The working state starts with the same record pointers as the baseline.
-		// Keep any updates from execution instead of saving the pre-execution scan.
-		if state.Source[path] != src.record || state.Target[path] != dst.record {
-			return nil
-		}
-		if !src.Equal(dst) && (src.isChanged() || dst.isChanged()) {
-			return nil
-		}
-		state.Source[path], state.Target[path] = preserveHash(src.toRecord(), src.record), preserveHash(dst.toRecord(), dst.record)
+		state.Source[path], state.Target[path] = newRecord(src), newRecord(dst)
 		return nil
 	})
-	// Traverse the original baselines so excluded directories prune all their
-	// historical descendants. The candidate may already contain type changes.
-	for side, previous := range []map[string]*Record{prevState.Source, prevState.Target} {
-		records := state.Source
-		if side == 1 {
-			records = state.Target
-		}
-		stateTree(previous).walk(func(path string, historical *entry) error {
-			if skip(path) {
-				if historical.IsDir() {
-					return fs.SkipDir
-				}
-				return nil
+
+	// Drop history only when both scans confirm absence. A skipped path or
+	// ancestor can hide an entry from both scans.
+	for _, records := range []map[string]*Record{state.Source, state.Target} {
+		for path := range records {
+			if s.srcTree.get(path) != nil || s.dstTree.get(path) != nil {
+				continue
 			}
-			if srcTree.get(path) == nil && dstTree.get(path) == nil {
+			ancestor := path
+			for ; ancestor != "."; ancestor = stdpath.Dir(ancestor) {
+				if s.srcTree.isSkipped(ancestor, false) || s.dstTree.isSkipped(ancestor, false) || s.skippedConflicts[ancestor] {
+					break
+				}
+			}
+			if ancestor == "." {
 				delete(records, path)
 			}
-			return nil
-		})
+		}
 	}
-	if reflect.DeepEqual(prevState.Source, state.Source) && reflect.DeepEqual(prevState.Target, state.Target) {
+
+	// Apply execution results last so they take precedence over the scans.
+	state.apply(results)
+
+	if reflect.DeepEqual(s.state.Source, state.Source) && reflect.DeepEqual(s.state.Target, state.Target) {
 		return nil
 	}
-	return state.save(ctx, s.option.StateStore)
+	if err := state.UpdateRevision(); err != nil {
+		return err
+	}
+	state.UpdatedAt = time.Now().UTC()
+	if ctx.Err() != nil {
+		// Give already confirmed operations a bounded chance to reach storage.
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+	}
+	return s.option.StateStore.Save(ctx, state)
 }
 
 func (s *syncer) run(ctx context.Context) error {
@@ -283,18 +291,11 @@ func (s *syncer) run(ctx context.Context) error {
 		s.notifyPhase(PhaseExecute, StatusSucceeded, err)
 		return err
 	}
-	state := &State{
-		HashAlgorithm: s.state.HashAlgorithm,
-		Version:       s.state.Version,
-		Source:        maps.Clone(s.state.Source),
-		Target:        maps.Clone(s.state.Target),
-	}
-	exec.state = state
-	syncErr := exec.run(ctx, tasks)
+	results, syncErr := exec.run(ctx, tasks)
 	s.notifyPhase(PhaseExecute, StatusSucceeded, syncErr)
 	// Save confirmed successes even after cancellation; no further tasks execute.
 	s.notifyPhase(PhaseFinish, StatusStarted, nil)
-	finishErr := s.finish(ctx, state)
+	finishErr := s.finish(ctx, results)
 	s.notifyPhase(PhaseFinish, StatusSucceeded, finishErr)
 	if syncErr == nil && !errors.Is(finishErr, ctx.Err()) {
 		syncErr = ctx.Err()

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -89,32 +88,27 @@ func TestSyncPreservesSnapshotsDuringExecution(t *testing.T) {
 		return data
 	}
 	before := snapshots()
-	tasks, err := worker.oneWayTasks(context.Background())
+	tasks, err := worker.oneWayTasks(ctx)
 	if err != nil {
 		t.Fatal(err)
-	}
-	state := &State{
-		HashAlgorithm: worker.state.HashAlgorithm,
-		Version:       worker.state.Version,
-		Source:        maps.Clone(worker.state.Source),
-		Target:        maps.Clone(worker.state.Target),
 	}
 	exec := &executor{
 		srcFS:   worker.srcFS,
 		dstFS:   worker.dstFS,
 		option:  worker.option,
-		state:   state,
 		skipped: make(map[string]bool),
 	}
-	for _, task := range tasks {
-		if err := exec.execute(ctx, task); err != nil {
-			t.Fatal(err)
+	results := make([]taskResult, len(tasks))
+	for i := range tasks {
+		results[i] = exec.execute(ctx, &tasks[i])
+		if results[i].err != nil {
+			t.Fatal(results[i].err)
 		}
 		if !bytes.Equal(before, snapshots()) {
 			t.Fatal("execution modified a scanned snapshot or loaded metadata")
 		}
 	}
-	if err := worker.finish(ctx, state); err != nil {
+	if err := worker.finish(ctx, results); err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(before, snapshots()) {
@@ -445,12 +439,8 @@ func TestSyncPipelinePlansConcreteEndpoints(t *testing.T) {
 		option: Option{
 			Concurrency: 2,
 		},
-		state: &State{
-			Source: make(map[string]*Record),
-			Target: make(map[string]*Record),
-		},
 	}
-	if err := exec.run(ctx, tasks); err != nil {
+	if _, err := exec.run(ctx, tasks); err != nil {
 		t.Fatal(err)
 	}
 	if observed[0].reads+observed[1].reads != 1 {

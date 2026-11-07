@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	stdpath "path"
+	"strings"
 	"time"
 )
 
@@ -109,6 +110,44 @@ type State struct {
 	HashAlgorithm crypto.Hash        `json:"hash_algorithm"` // Algorithm shared by all record hashes.
 }
 
+// apply records confirmed task results in execution stage order.
+func (state *State) apply(results []taskResult) {
+	for _, result := range results {
+		task := result.task
+		if task == nil {
+			continue
+		}
+		src, dst := state.Source, state.Target
+		if task.reverse {
+			src, dst = state.Target, state.Source
+		}
+		switch task.op {
+		case OpRename:
+			dst[task.newPath] = result.record
+			delete(dst, task.path)
+		case OpCopy, OpMkdir:
+			src[task.path] = task.record.withHash(result.record.Hash)
+			dst[task.path] = result.record
+		case OpRemove, OpRmdir:
+			delete(dst, task.path)
+			if !task.replace {
+				delete(src, task.path)
+			}
+			if task.op == OpRmdir {
+				// Neither side can retain confirmed descendants of the removed directory.
+				prefix := task.path + "/"
+				for _, records := range []map[string]*Record{src, dst} {
+					for path := range records {
+						if strings.HasPrefix(path, prefix) {
+							delete(records, path)
+						}
+					}
+				}
+			}
+		}
+	}
+}
+
 // Valid reports whether state has a supported protocol version, a nonempty
 // revision and valid record maps, paths and directory parents. Nil is invalid.
 // It does not recompute Revision or read the filesystems.
@@ -152,22 +191,6 @@ func (state *State) UpdateRevision() error {
 	hash := sha256.Sum256(data)
 	state.Revision = hex.EncodeToString(hash[:])
 	return nil
-}
-
-// save publishes confirmed content. The caller has already checked for changes.
-func (state *State) save(ctx context.Context, store StateStore) error {
-	if err := state.UpdateRevision(); err != nil {
-		return err
-	}
-	state.UpdatedAt = time.Now().UTC()
-	if ctx.Err() != nil {
-		// Give already confirmed operations a bounded chance to reach storage.
-		// Normal saves keep the caller's cancellation and deadline.
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-	}
-	return store.Save(ctx, state)
 }
 
 func stateTree(records map[string]*Record) *syncTree {
