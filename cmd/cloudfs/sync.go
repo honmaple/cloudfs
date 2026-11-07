@@ -40,11 +40,7 @@ var syncFlags = []cli.Flag{
 	},
 	&cli.BoolFlag{
 		Name:  "checksum",
-		Usage: "Read contents to compare SHA-256",
-	},
-	&cli.BoolFlag{
-		Name:  "hash-on-change",
-		Usage: "Reuse saved hashes for unchanged size and time (requires --state)",
+		Usage: "Compare file contents using hashes, reusing saved hashes when possible",
 	},
 	&cli.StringFlag{
 		Name:  "conflict",
@@ -103,10 +99,9 @@ func syncAction(c *cli.Context, drivers *driverSet) error {
 		OnEvent:          syncPreview(c),
 		StateStore:       store,
 
-		Delete:       c.Bool("delete"),
-		Checksum:     c.Bool("checksum"),
-		HashOnChange: c.Bool("hash-on-change"),
-		OnConflict:   onConflict,
+		Delete:     c.Bool("delete"),
+		Checksum:   c.Bool("checksum"),
+		OnConflict: onConflict,
 	})
 }
 
@@ -127,7 +122,6 @@ func bisyncAction(c *cli.Context, drivers *driverSet) error {
 		OnEvent:          syncPreview(c),
 		StateStore:       store,
 		Checksum:         c.Bool("checksum"),
-		HashOnChange:     c.Bool("hash-on-change"),
 		OnConflict:       onConflict,
 	})
 }

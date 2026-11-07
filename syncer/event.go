@@ -40,9 +40,9 @@ func (op Op) String() string {
 type Phase uint8
 
 const (
-	// PhaseScan scans both filesystems and applies path filters.
+	// PhaseScan loads previous state, scans both filesystems, and applies path filters.
 	PhaseScan Phase = iota
-	// PhasePlan loads previous state, compares entries and generates tasks.
+	// PhasePlan compares entries and generates tasks.
 	PhasePlan
 	// PhaseExecute executes tasks or reports them during a dry run.
 	PhaseExecute

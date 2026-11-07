@@ -30,7 +30,7 @@ option := syncer.Option{
 }
 ```
 
-Import `strings` for this example. The callback runs synchronously during each scan, before reading file contents for checksums; `Hash()` is empty for these scan snapshots. The root `/` is not passed to the callback. Paths are absolute within the supplied FS. Excluded directories are not traversed and their descendants are not passed to the callback. Historical entries are not passed to the callback. Paths excluded by the current scans, including descendants hidden by an excluded directory, retain their previous baseline. Historical paths confirmed absent from both scans are removed unless covered by an exclusion. Do not mutate filesystems or metadata in the callback.
+Import `strings` for this example. The callback runs synchronously during each scan, before reading file contents for checksums; `Hash()` is empty for these scan snapshots. The root `/` is not passed to the callback. Paths are absolute within the supplied FS. Excluded directories are not traversed and their descendants are not passed to the callback. The callback receives only the current scan snapshots. Paths excluded by the current scans, including descendants hidden by an excluded directory, retain their previous baseline. Historical paths confirmed absent from both scans are removed unless covered by an exclusion. Do not mutate filesystems or metadata in the callback.
 
 A match on either side excludes that path and descendants on both sides, preserves previous metadata, and emits neither conflict callbacks nor task events. An ancestor deletion or type replacement that would affect an excluded child is skipped for the whole subtree. New directories can still be created with their included children. Nil disables filtering.
 
@@ -79,23 +79,15 @@ Events remain ordered within each task, while events from different tasks may in
 
 After receiving an unignored error, dispatch stops and active tasks are awaited. Confirmed successes participate in the final state save, and active-task errors are returned together. A failed copy stage prevents the final deletion stages. Cancel the caller context to interrupt active operations; cancellation saves follow the separate save-deadline rules described above. No tasks remain running after sync returns.
 
-## Hashing on Change
+## Hash Comparison
 
-The default still compares size and modification time without content reads. `Option.HashOnChange` explicitly enable state-based hash reuse:
+`cloudfs.Hasher` provides `Hashes() []crypto.Hash` and `Hash(ctx, path, algorithm)`. `Hashes` lists the driver's supported algorithms in preference order. Sync selects the first algorithm supported by both sides and available for streamed verification, falling back to SHA-256 when there is no shared algorithm. Drivers return a lowercase hexadecimal content digest. An empty string or `cloudfs.ErrNotSupport` falls back to reading the file; other errors are returned. `PrefixFS` forwards both methods.
 
-```go
-option := syncer.Option{
-    HashOnChange: true,
+Sync compares size and modification time by default. Set `Checksum: true` to compare file contents by hash. Initial copies establish both hash baselines from the transfer stream; planning reads hashes only when a content comparison is needed. Later plans reuse a historical hash only when that side's size and modification time match, the size is known, and the timestamp is nonzero. Other files needed by those planning decisions obtain the selected digest from the driver or by reading their contents. Timestamp-only changes with identical content refresh the local baseline without copying or changing the receiver's time. Hashing emits no copy progress.
 
-    StateStore:   store,
-}
-```
+Each side reads a path at most once for planning; transfer reads are separate. Destination-only files preserved or deleted by one-way sync, skipped type-conflict subtrees, and paths not reached after an abort are not hashed. Once copying is determined, task generation does not pre-read the source. New files, selected type replacements, and subtree copies use the transfer stream for their hash; a hash already obtained during comparison is still validated during copying. Successful copies record the transfer hash in both source and target baselines, independently of the comparison options. Reusing a saved hash trusts size and modification time, so content changes preserving both can escape detection. `Checksum` can be switched between runs. Older state without hashes is read again; newly discovered content differences follow normal change or conflict rules rather than being ignored because old size and time match.
 
-One-way sync requires `StateStore` for hash reuse; bidirectional sync uses its required store. Initial copies establish both hash baselines from the transfer stream; planning reads hashes only when a content comparison is needed. Later plans reuse a historical hash only when that side's size and modification time match, the size is known, and the timestamp is nonzero. Other files needed by those planning decisions are read to compute SHA-256. Timestamp-only changes with identical content refresh the local baseline without copying or changing the receiver's time. Hashing emits no copy progress.
-
-`Checksum: true` takes precedence and computes fresh hashes on demand during planning, without reusing historical hashes. Each side reads a path at most once for planning; transfer reads are separate. Destination-only files preserved or deleted by one-way sync, skipped type-conflict subtrees, and paths not reached after an abort are not hashed. Once copying is determined, task generation does not pre-read the source. New files, selected type replacements, and subtree copies use the transfer stream for their hash; a hash already obtained during comparison is still validated during copying. Successful copies record the transfer hash in both source and target baselines, independently of the comparison options. Hashing on change trusts size and time, so content changes preserving both can escape detection; use `Checksum` for a full check. Neither option changes the state format, and both can be switched between runs. Older state without hashes is read again; newly discovered content differences follow normal change or conflict rules rather than being ignored because old size and time match.
-
-Filtering runs before hash reads. Dry runs perform needed reads but do not save refreshed state. Hash reads use the same stream-close, byte-count, and source-snapshot checks as full checksum reads.
+Filtering runs before hash reads. Dry runs perform needed reads but do not save refreshed state. Hash reads return both read and stream-close errors.
 
 ## Dry Runs and Deletion Limits
 
@@ -116,7 +108,7 @@ option := syncer.Option{
 }
 ```
 
-A dry run loads state, scans, and resolves conflicts normally. `OnEvent` receives one `StatusPlanned` per planned operation. It performs no writes or state saves and emits no copy progress or successful task events. Phase events are still emitted. `Checksum` and `HashOnChange` still perform their required reads, and callbacks still run; callers must avoid write side effects in callbacks. Bidirectional dry runs still require `StateStore`; one-way dry runs load state when a store is provided. No executable plan is retained: a real run scans again.
+A dry run loads state, scans, and resolves conflicts normally. `OnEvent` receives one `StatusPlanned` per planned operation. It performs no writes or state saves and emits no copy progress or successful task events. Phase events are still emitted. Hash comparison performs the same reads as a real run, and callbacks still run; callers must avoid write side effects in callbacks. Bidirectional dry runs still require `StateStore`; one-way dry runs load state when a store is provided. No executable plan is retained: a real run scans again.
 
 `MaxDelete` limits the combined number of explicitly removed entries across both sides. Each file and directory counts once per side; recursive removals include all scanned descendants. Type replacements count even when one-way `Delete` is false. Ordinary file overwrites do not count as deletions.
 
@@ -126,9 +118,9 @@ Exceeding a limit returns `ErrTooManyDeletes`, detectable with `errors.Is`, befo
 
 ## Source Consistency
 
-Before each copy attempt, the source's type, size, and modification time must match its scanned snapshot. After a successful read and stream closure, these checks run again. Hashing during planning also checks metadata and byte count after reading; when a planning hash exists, the copy validates its hash using the transfer stream, without another content read. Detected changes return `ErrSourceChanged`, detectable with `errors.Is`, and do not advance that file's saved state. A pre-copy mismatch prevents this copy attempt from opening a target writer; earlier tasks, such as type replacement removals, may already have changed the target. During-copy changes may already have affected the target: this is not atomic replacement.
+Before each copy attempt, the source's type, size, and modification time must match its scanned snapshot. After a successful read and stream closure, these checks run again. When a planning hash exists, the copy validates its hash using the transfer stream, without another content read. Detected changes return `ErrSourceChanged`, detectable with `errors.Is`, and do not advance that file's saved state. A pre-copy mismatch prevents this copy attempt from opening a target writer; earlier tasks, such as type replacement removals, may already have changed the target. During-copy changes may already have affected the target: this is not atomic replacement.
 
-During copying, `OnError` may skip the changed file with `ErrorSkip` or stop by returning the error. Retries retain the original snapshot and reject a still-changed source; a later sync scans again. Changes detected while hashing stop planning before writes and bypass `OnError`. Metadata checks add two source `Stat` calls per fully read copy attempt and one per successful planning hash read. They add no content reads. With `Checksum` disabled, changes preserving size and time can escape detection. Callers must still exclude concurrent writers.
+During copying, `OnError` may skip the changed file with `ErrorSkip` or stop by returning the error. Retries retain the original snapshot and reject a still-changed source; a later sync scans again. Hash retrieval failures stop planning before writes and bypass `OnError`. Metadata checks add two source `Stat` calls per fully read copy attempt. Planning hash reads add no `Stat` calls. They add no content reads. Changes preserving size and time can escape detection when comparing metadata or reusing saved hashes. Callers must still exclude concurrent writers.
 
 ## One-way synchronization
 
@@ -162,11 +154,9 @@ transfers do not advance metadata. Transfer and close errors are preserved toget
 for `errors.Is`. Driver, callback, and storage errors retain their original text. Use callback
 file information and task events for path, operation, and direction.
 
-Comparison uses size and modification time by default and does not open data
-files. `HashOnChange` explicitly enables state-based hash reuse as described above. `Checksum: true` computes SHA-256 as the planning traversal compares file contents, after both metadata scans. Hashes compare source and destination files; copying also checks the transferred hash against the source hash computed during planning when available. Copying always records the actual transfer hash in both baselines without rereading either side. When both entries have a hash, equality compares hashes; if either hash is
+Comparison defaults to size and modification time. With `Checksum: true`, planning reuses or obtains the selected digest as needed after both metadata scans. Hashes compare source and destination files; copying also checks the transferred hash against the source hash computed during planning when available. Copying always records the actual transfer hash in both baselines without rereading either side. When both entries have a hash, equality compares hashes; if either hash is
 missing, it compares size and modification time. `Checksum` does not constrain
-stored metadata or require hashes to exist. State comparison cannot detect
-same-size changes with unchanged times.
+stored metadata or require hashes to exist.
 Permissions and timestamps are not copied. Symbolic links and special files are
 rejected. The caller must supply filesystem metadata compatible with its content.
 
@@ -180,11 +170,12 @@ type StateStore interface {
 }
 ```
 
-`State.Source` and `State.Target` are `map[string]*syncer.Entry`, keyed by
-relative paths. `Entry` contains `IsDir`, `Size`, `ModTime`, and `Hash`.
+`State.Source` and `State.Target` are `map[string]*syncer.Record`, keyed by
+relative paths. `Record` contains `IsDir`, `Size`, `ModTime`, and `Hash`.
+`State.HashAlgorithm` is the required `crypto.Hash` used by this baseline; subsequent syncs retain it.
 `State.Version` remains the integer protocol version, currently `1`; other
 protocol versions are rejected. `State.Revision` is a nonempty string identifying
-the saved content. New saves use the SHA-256 of the JSON-encoded `Type`, `Version`,
+the saved content. New saves use the SHA-256 of the JSON-encoded `HashAlgorithm`, `Version`,
 `Source`, and `Target`, excluding `Revision` itself. Map insertion order does not
 affect the result. Loading also accepts other nonempty revision identifiers, such
 as a caller-provided UUID. Unchanged metadata keeps its revision and is not saved
@@ -195,8 +186,8 @@ It is excluded from the revision hash and file comparisons. Unchanged calls do
 not update it. Partial successes may also be saved, so this is not the last
 successful synchronization time. Older records may omit the timestamp.
 
-Use `Entry.Valid()` and `State.Valid()` to check caller-constructed metadata.
-`Entry.Equal(other)` follows the synchronization comparison rules; directory
+Use `Record.Valid(state.HashAlgorithm)` and `State.Valid()` to check caller-constructed metadata.
+`Record.Equal(other)` follows the synchronization comparison rules; directory
 comparison checks type only, not children. `State.UpdateRevision()` computes
 a content revision without changing `UpdatedAt`; call it before sharing metadata
 with a store. These methods perform no filesystem I/O.
@@ -281,8 +272,8 @@ OnEvent: func(event syncer.Event) {
 
 | Phase | Activity |
 | --- | --- |
-| `PhaseScan` | Scan both sides and apply path filters |
-| `PhasePlan` | Load prior state, compare entries, and generate tasks |
+| `PhaseScan` | Load prior state, scan both sides, and apply path filters |
+| `PhasePlan` | Compare entries and generate tasks |
 | `PhaseExecute` | Execute tasks, or report planned tasks in a dry run |
 | `PhaseFinish` | Reconcile and save confirmed state; omitted in dry runs |
 
@@ -314,13 +305,13 @@ err := syncer.Sync(ctx, src, dst, syncer.Option{
 ```
 
 `ModeTwoWay` requires a caller-provided `StateStore` for a fixed, ordered filesystem
-pair. It uses the same typed `State` and `Entry` as `Sync`, with separate
+pair. It uses the same typed `State` and `Record` as `Sync`, with separate
 metadata for each side. Each call has three stages: scan metadata, plan, then execute. Planning checks exclusions while traversing paths, computes or reuses hashes as configured, compares entries, resolves conflicts, generates tasks, and checks deletion limits. Both roots are scanned once; the complete plan succeeds before writing. There is no public delayed plan or default state file; all
 filenames are available for application data.
 
 The first call merges distinct paths. Later calls propagate one-sided changes
 and deletions using each side's previous metadata, so different upload timestamps
-do not cause repeated transfers. `Checksum` explicitly reads file contents on demand during
+do not cause repeated transfers. `Checksum` compares file contents by hash during
 planning, including when checking whether a surviving subtree changed after deletion on the other side. Comparisons use hashes when both entries have them and otherwise use
 size and modification time. Changing `Checksum` does not invalidate metadata.
 

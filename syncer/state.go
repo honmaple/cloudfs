@@ -2,6 +2,7 @@ package syncer
 
 import (
 	"context"
+	"crypto"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,66 +12,75 @@ import (
 	"time"
 )
 
-// Entry describes a file or directory in a synchronization snapshot or State.
+// Record describes a file or directory in a synchronization snapshot or State.
 // Paths are the keys of State.Source and State.Target.
-type Entry struct {
+type Record struct {
 	IsDir   bool      `json:"is_dir,omitempty"`
 	Size    int64     `json:"size,omitempty"`
 	ModTime time.Time `json:"mod_time,omitempty"`
 	Hash    string    `json:"hash,omitempty"`
 }
 
-// Valid reports whether the entry has valid synchronization metadata.
-// A nil entry is invalid. Directories must have zero size, time and hash;
-// nonempty file hashes must be valid SHA-256 hex digests. It performs no I/O.
-func (entry *Entry) Valid() bool {
-	if entry == nil {
+// Valid reports whether the record has valid synchronization metadata.
+// A nil record is invalid. Directories must have zero size, time and hash;
+// nonempty file hashes must be hex digests of the supplied algorithm. It performs no I/O.
+func (record *Record) Valid(algorithm crypto.Hash) bool {
+	if record == nil {
 		return false
 	}
-	if entry.IsDir {
-		return entry.Size == 0 && entry.ModTime.IsZero() && entry.Hash == ""
+	if record.IsDir {
+		return record.Size == 0 && record.ModTime.IsZero() && record.Hash == ""
 	}
-	if entry.Hash == "" {
+	if record.Hash == "" {
 		return true
 	}
-	hash, err := hex.DecodeString(entry.Hash)
-	return err == nil && len(hash) == sha256.Size
+	hash, err := hex.DecodeString(record.Hash)
+	return err == nil && len(hash) == algorithm.Size()
 }
 
 // Equal compares synchronization information without reading file contents.
-// Two nil entries are equal. Directories compare only by type, not their subtrees.
+// Two nil records are equal. Directories compare only by type, not their subtrees.
 // Files compare hashes when both are nonempty, otherwise size and modification time.
-func (entry *Entry) Equal(other *Entry) bool {
-	if entry == nil || other == nil {
-		return entry == other
+func (record *Record) Equal(other *Record) bool {
+	if record == nil || other == nil {
+		return record == other
 	}
-	if entry.IsDir != other.IsDir {
+	if record.IsDir != other.IsDir {
 		return false
 	}
-	if entry.IsDir {
+	if record.IsDir {
 		return true
 	}
-	if entry.Hash != "" && other.Hash != "" {
-		return entry.Hash == other.Hash
+	if record.Hash != "" && other.Hash != "" {
+		return record.Hash == other.Hash
 	}
-	return entry.Size == other.Size && entry.ModTime.Equal(other.ModTime)
+	return record.Size == other.Size && record.ModTime.Equal(other.ModTime)
 }
 
-// FileInfo adapts an entry to a read-only view at an absolute path within the supplied FS.
-// A nil entry returns nil. The returned snapshot is independent of later entry changes.
-func (entry *Entry) FileInfo(path string) FileInfo {
-	if entry == nil {
+// FileInfo adapts a record to a read-only view at an absolute path within the supplied FS.
+// A nil record returns nil. The returned snapshot is independent of later record changes.
+func (record *Record) FileInfo(path string) FileInfo {
+	snapshot := record.entry(path)
+	if snapshot == nil {
 		return nil
 	}
-	return &fileInfo{entry: *entry, path: path}
+	return snapshot
 }
 
-// withHash returns a confirmed source snapshot without changing scanned entries.
-func (entry *Entry) withHash(hash string) *Entry {
-	if entry == nil || entry.IsDir || entry.Hash == hash {
-		return entry
+// entry adapts historical metadata for comparison without attaching a filesystem.
+func (record *Record) entry(path string) *entry {
+	if record == nil {
+		return nil
 	}
-	confirmed := *entry
+	return &entry{path: path, size: record.Size, modTime: record.ModTime, isDir: record.IsDir, hash: record.Hash}
+}
+
+// withHash returns a confirmed source snapshot without modifying the original record.
+func (record *Record) withHash(hash string) *Record {
+	if record == nil || record.IsDir || record.Hash == hash {
+		return record
+	}
+	confirmed := *record
 	confirmed.Hash = hash
 	return &confirmed
 }
@@ -92,21 +102,21 @@ type StateStore interface {
 // Its exported fields support serialization, for example with encoding/json.
 // Treat its contents as immutable once supplied to or received from Sync.
 type State struct {
-	Type      string            `json:"type"`
-	Version   int               `json:"version"`    // Protocol version; currently 1.
-	Revision  string            `json:"revision"`   // Identifies the state content.
-	UpdatedAt time.Time         `json:"updated_at"` // UTC time when changed state was prepared for saving.
-	Source    map[string]*Entry `json:"source"`
-	Target    map[string]*Entry `json:"target"`
+	Source        map[string]*Record `json:"source"`
+	Target        map[string]*Record `json:"target"`
+	Version       int                `json:"version"`        // Protocol version; currently 1.
+	Revision      string             `json:"revision"`       // Identifies the state content.
+	UpdatedAt     time.Time          `json:"updated_at"`     // UTC time when changed state was prepared for saving.
+	HashAlgorithm crypto.Hash        `json:"hash_algorithm"` // Algorithm shared by all record hashes.
 }
 
 // withPathPrefix converts state keys at the storage boundary without modifying
 // maps held by the caller. Internal keys use "/"; persisted keys use "".
 func (state *State) withPathPrefix(prefix string) *State {
-	convert := func(entries map[string]*Entry) map[string]*Entry {
-		converted := make(map[string]*Entry, len(entries))
-		for path, entry := range entries {
-			converted[prefix+strings.TrimPrefix(path, "/")] = entry
+	convert := func(records map[string]*Record) map[string]*Record {
+		converted := make(map[string]*Record, len(records))
+		for path, record := range records {
+			converted[prefix+strings.TrimPrefix(path, "/")] = record
 		}
 		return converted
 	}
@@ -117,42 +127,42 @@ func (state *State) withPathPrefix(prefix string) *State {
 }
 
 // Valid reports whether state has a supported protocol version, a nonempty
-// revision and valid entry maps, paths and directory parents. Nil is invalid.
+// revision and valid record maps, paths and directory parents. Nil is invalid.
 // It does not recompute Revision or read the filesystems.
 func (state *State) Valid() bool {
-	if state == nil || state.Version != 1 || state.Revision == "" || (state.Type != "sync" && state.Type != "bisync") {
+	if state == nil || state.Version != 1 || state.Revision == "" || !state.HashAlgorithm.Available() {
 		return false
 	}
-	validEntries := func(entries map[string]*Entry) bool {
-		if entries == nil {
+	validRecords := func(records map[string]*Record) bool {
+		if records == nil {
 			return false
 		}
-		for path, entry := range entries {
-			if entry == nil || !fs.ValidPath(path) || path == "." || !entry.Valid() {
+		for path, record := range records {
+			if record == nil || !fs.ValidPath(path) || path == "." || !record.Valid(state.HashAlgorithm) {
 				return false
 			}
 			if parentPath := stdpath.Dir(path); parentPath != "." {
-				if parent := entries[parentPath]; parent == nil || !parent.IsDir {
+				if parent := records[parentPath]; parent == nil || !parent.IsDir {
 					return false
 				}
 			}
 		}
 		return true
 	}
-	return validEntries(state.Source) && validEntries(state.Target)
+	return validRecords(state.Source) && validRecords(state.Target)
 }
 
-// UpdateRevision replaces Revision with the SHA-256 of Type, Version, Source
+// UpdateRevision replaces Revision with the SHA-256 of HashAlgorithm, Version, Source
 // and Target, excluding Revision and UpdatedAt. Map insertion order does not
 // affect the digest. It does not validate state or change UpdatedAt.
 // Call it on non-nil, privately owned state before exposing it to a StateStore.
 func (state *State) UpdateRevision() error {
 	data, err := json.Marshal(struct {
-		Type    string            `json:"type"`
-		Version int               `json:"version"`
-		Source  map[string]*Entry `json:"source"`
-		Target  map[string]*Entry `json:"target"`
-	}{Type: state.Type, Version: state.Version, Source: state.Source, Target: state.Target})
+		HashAlgorithm crypto.Hash        `json:"hash_algorithm"` // Algorithm shared by all record hashes.
+		Version       int                `json:"version"`
+		Source        map[string]*Record `json:"source"`
+		Target        map[string]*Record `json:"target"`
+	}{HashAlgorithm: state.HashAlgorithm, Version: state.Version, Source: state.Source, Target: state.Target})
 	if err != nil {
 		return err
 	}
@@ -175,4 +185,12 @@ func (state *State) save(ctx context.Context, store StateStore) error {
 		defer cancel()
 	}
 	return store.Save(ctx, state)
+}
+
+func stateTree(records map[string]*Record) *syncTree {
+	entries := make(map[string]*entry, len(records))
+	for path, record := range records {
+		entries[path] = record.entry(path)
+	}
+	return newSyncTree(entries)
 }

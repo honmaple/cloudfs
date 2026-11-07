@@ -3,12 +3,14 @@ package syncer
 
 import (
 	"context"
+	"crypto"
 	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
 	stdpath "path"
 	"reflect"
+	"slices"
 	"strings"
 
 	"github.com/honmaple/cloudfs"
@@ -43,12 +45,9 @@ type Option struct {
 	// scanned entries, excluding the root. 0 disables the limit; valid range is 0–100.
 	MaxDeletePercent int
 	Delete           bool // Remove destination-only entries after copying.
-	// Checksum reads files on demand during comparison,
-	// using SHA-256 instead of size/modtime and without reusing historical hashes.
+	// Checksum compares file contents using hashes. Saved hashes are reused
+	// when the file size and modification time match the historical record.
 	Checksum bool
-	// HashOnChange reuses historical hashes when size and modification time match.
-	// Other needed files are hashed during planning. Requires StateStore; Checksum overrides it.
-	HashOnChange bool
 	// StateStore enables loading and saving confirmed state when non-nil.
 	StateStore StateStore
 
@@ -61,7 +60,7 @@ type Option struct {
 // Sync synchronizes / in each supplied filesystem. Use middleware.PrefixFS
 // to scope either filesystem to a subdirectory. It preserves destination-only
 // entries by default. Existing files are compared by size and modification
-// time; Checksum and HashOnChange explicitly enable content reads. Differing
+// time unless Checksum enables hash comparison. Differing
 // files and type mismatches use OnConflict, defaulting to Abort() and ErrSyncConflict.
 // ModeTwoWay requires StateStore.
 // Filesystem ownership remains with the caller.
@@ -85,9 +84,6 @@ func Sync(ctx context.Context, src, dst cloudfs.FS, options ...Option) error {
 	if opt.Mode == ModeTwoWay && opt.StateStore == nil {
 		return fmt.Errorf("%w: ModeTwoWay requires StateStore", ErrSyncState)
 	}
-	if opt.HashOnChange && opt.StateStore == nil {
-		return fmt.Errorf("%w: HashOnChange requires StateStore", ErrSyncState)
-	}
 	if opt.Concurrency < 0 {
 		return fmt.Errorf("sync: invalid concurrency %d", opt.Concurrency)
 	}
@@ -97,20 +93,29 @@ func Sync(ctx context.Context, src, dst cloudfs.FS, options ...Option) error {
 	if opt.Concurrency > 1 {
 		opt.OnEvent, opt.OnError = serialHandlers(opt.OnEvent, opt.OnError)
 	}
+	algorithm := crypto.SHA256
+	if source, ok := src.(cloudfs.Hasher); ok {
+		if target, ok := dst.(cloudfs.Hasher); ok {
+			targetHashes := target.Hashes()
+			for _, hash := range source.Hashes() {
+				if hash.Available() && slices.Contains(targetHashes, hash) {
+					algorithm = hash
+					break
+				}
+			}
+		}
+	}
 	worker := &syncer{
 		state: &State{
-			Type:    "sync",
-			Source:  make(map[string]*Entry),
-			Target:  make(map[string]*Entry),
-			Version: 1,
+			HashAlgorithm: algorithm,
+			Source:        make(map[string]*Record),
+			Target:        make(map[string]*Record),
+			Version:       1,
 		},
-		srcFS:            &syncFS{FS: src, option: opt},
-		dstFS:            &syncFS{FS: dst, option: opt},
+		srcFS:            &syncFS{FS: src, option: opt, algorithm: algorithm},
+		dstFS:            &syncFS{FS: dst, option: opt, algorithm: algorithm},
 		option:           opt,
 		skippedConflicts: make(map[string]bool),
-	}
-	if opt.Mode == ModeTwoWay {
-		worker.state.Type = "bisync"
 	}
 	return worker.run(ctx)
 }
@@ -123,18 +128,31 @@ type syncer struct {
 	skippedConflicts map[string]bool
 }
 
-func (s *syncer) isAdded(cur, prev *Entry) bool {
-	return cur != nil && prev == nil
+// compare reports whether the two scanned files differ.
+func (s *syncer) compare(ctx context.Context, src, dst *entry) (bool, error) {
+	if s.option.Checksum {
+		if err := src.loadHash(ctx); err != nil {
+			return false, err
+		}
+		if err := dst.loadHash(ctx); err != nil {
+			return false, err
+		}
+	}
+	return !src.Equal(dst), nil
 }
 
-func (s *syncer) isDeleted(cur, prev *Entry) bool {
-	return cur == nil && prev != nil
+// isChanged compares a scanned entry with its own historical record.
+func (s *syncer) isChanged(ctx context.Context, cur *entry) (bool, error) {
+	if s.option.Checksum && cur.record != nil && !cur.IsDir() && !cur.record.IsDir {
+		if err := cur.loadHash(ctx); err != nil {
+			return false, err
+		}
+	}
+	return cur.isChanged(), nil
 }
 
-// isChanged compares snapshots without I/O. A newly known hash cannot confirm
-// unchanged content against a historical snapshot without a hash.
-func (s *syncer) isChanged(cur, prev *Entry) bool {
-	return !cur.Equal(prev) || cur != nil && cur.Hash != "" && prev.Hash == ""
+func (s *syncer) isDeleted(cur *entry, record *Record) bool {
+	return cur == nil && record != nil
 }
 
 func (s *syncer) init(ctx context.Context) error {
@@ -148,10 +166,11 @@ func (s *syncer) init(ctx context.Context) error {
 	if loaded == nil {
 		return nil
 	}
-	if loaded.Type != s.state.Type || !loaded.Valid() {
+	if !loaded.Valid() {
 		return fmt.Errorf("%w: incompatible synchronization state", ErrSyncState)
 	}
 	s.state = loaded.withPathPrefix("/")
+	s.srcFS.algorithm, s.dstFS.algorithm = loaded.HashAlgorithm, loaded.HashAlgorithm
 	return nil
 }
 
@@ -164,17 +183,17 @@ func (s *syncer) finish(ctx context.Context, state *State) error {
 	skip := func(path string) bool {
 		return srcTree.isSkipped(path, false) || dstTree.isSkipped(path, false) || s.skippedConflicts[path]
 	}
-	preserveHash := func(entry, previous *Entry) *Entry {
-		if entry.Hash == "" && previous != nil && previous.Hash != "" && entry.Equal(previous) {
-			copiedEntry := *entry
-			copiedEntry.Hash = previous.Hash
-			return &copiedEntry
+	preserveHash := func(record, previous *Record) *Record {
+		if record.Hash == "" && previous != nil && previous.Hash != "" && record.Equal(previous) {
+			copiedRecord := *record
+			copiedRecord.Hash = previous.Hash
+			return &copiedRecord
 		}
-		return entry
+		return record
 	}
-	srcTree.walk(func(path string, entry *Entry) error {
+	srcTree.walk(func(path string, src *entry) error {
 		if skip(path) {
-			if entry.IsDir {
+			if src.IsDir() {
 				return fs.SkipDir
 			}
 			return nil
@@ -183,34 +202,33 @@ func (s *syncer) finish(ctx context.Context, state *State) error {
 		if dst == nil {
 			return nil
 		}
-		sourceEntry, targetEntry := state.Source[path], state.Target[path]
-		if !entry.Equal(dst) {
-			if s.isChanged(entry, sourceEntry) {
-				return nil
-			}
-			if s.isChanged(dst, targetEntry) {
-				return nil
-			}
+		// The working state starts with the same record pointers as the baseline.
+		// Keep any updates from execution instead of saving the pre-execution scan.
+		if state.Source[path] != src.record || state.Target[path] != dst.record {
+			return nil
 		}
-		state.Source[path], state.Target[path] = preserveHash(entry, sourceEntry), preserveHash(dst, targetEntry)
+		if !src.Equal(dst) && (src.isChanged() || dst.isChanged()) {
+			return nil
+		}
+		state.Source[path], state.Target[path] = preserveHash(src.toRecord(), src.record), preserveHash(dst.toRecord(), dst.record)
 		return nil
 	})
 	// Traverse the original baselines so excluded directories prune all their
 	// historical descendants. The candidate may already contain type changes.
-	for side, previous := range []map[string]*Entry{prevState.Source, prevState.Target} {
-		entries := state.Source
+	for side, previous := range []map[string]*Record{prevState.Source, prevState.Target} {
+		records := state.Source
 		if side == 1 {
-			entries = state.Target
+			records = state.Target
 		}
-		newSyncTree(previous).walk(func(path string, entry *Entry) error {
+		stateTree(previous).walk(func(path string, historical *entry) error {
 			if skip(path) {
-				if entry.IsDir {
+				if historical.IsDir() {
 					return fs.SkipDir
 				}
 				return nil
 			}
 			if srcTree.get(path) == nil && dstTree.get(path) == nil {
-				delete(entries, path)
+				delete(records, path)
 			}
 			return nil
 		})
@@ -223,12 +241,16 @@ func (s *syncer) finish(ctx context.Context, state *State) error {
 
 func (s *syncer) run(ctx context.Context) error {
 	s.notifyPhase(PhaseScan, StatusStarted, nil)
-	srcTree, err := s.srcFS.scan(ctx)
+	if err := s.init(ctx); err != nil {
+		s.notifyPhase(PhaseScan, StatusFailed, err)
+		return err
+	}
+	srcTree, err := s.srcFS.scan(ctx, s.state.Source)
 	if err != nil {
 		s.notifyPhase(PhaseScan, StatusFailed, err)
 		return err
 	}
-	dstTree, err := s.dstFS.scan(ctx)
+	dstTree, err := s.dstFS.scan(ctx, s.state.Target)
 	if err != nil {
 		s.notifyPhase(PhaseScan, StatusFailed, err)
 		return err
@@ -238,10 +260,6 @@ func (s *syncer) run(ctx context.Context) error {
 	s.notifyPhase(PhaseScan, StatusSucceeded, nil)
 
 	s.notifyPhase(PhasePlan, StatusStarted, nil)
-	if err := s.init(ctx); err != nil {
-		s.notifyPhase(PhasePlan, StatusFailed, err)
-		return err
-	}
 	var tasks []syncTask
 	switch s.option.Mode {
 	case ModeOneWay:
@@ -266,10 +284,10 @@ func (s *syncer) run(ctx context.Context) error {
 		return err
 	}
 	state := &State{
-		Type:    s.state.Type,
-		Version: s.state.Version,
-		Source:  maps.Clone(s.state.Source),
-		Target:  maps.Clone(s.state.Target),
+		HashAlgorithm: s.state.HashAlgorithm,
+		Version:       s.state.Version,
+		Source:        maps.Clone(s.state.Source),
+		Target:        maps.Clone(s.state.Target),
 	}
 	exec.state = state
 	syncErr := exec.run(ctx, tasks)
@@ -286,41 +304,36 @@ func (s *syncer) run(ctx context.Context) error {
 
 func (s *syncer) oneWayTasks(ctx context.Context) ([]syncTask, error) {
 	tasks := make([]syncTask, 0)
-	if err := s.srcTree.walk(func(path string, entry *Entry) error {
+	if err := s.srcTree.walk(func(path string, src *entry) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if s.skippedConflicts[path] || s.dstTree.isSkipped(path, false) {
-			if entry.IsDir {
+			if src.IsDir() {
 				return fs.SkipDir
 			}
 			return nil
 		}
-		src, dst := entry, s.dstTree.get(path)
+		dst := s.dstTree.get(path)
 		var (
 			err    error
 			policy = ConflictPreferSrc
 		)
 		switch {
 		case dst == nil:
-		case src.IsDir != dst.IsDir:
-			if dst.IsDir && s.dstTree.isSkipped(path, true) {
+		case src.IsDir() != dst.IsDir():
+			if dst.IsDir() && s.dstTree.isSkipped(path, true) {
 				s.skippedConflicts[path] = true
 				return nil
 			}
 			policy, err = s.handleConflict(ctx, path, src, dst)
-		case src.IsDir:
+		case src.IsDir():
 			return nil
 		default:
-			src, err = s.srcFS.readHash(ctx, s.srcTree, path, s.state.Source[path])
-			if err != nil {
+			if changed, err := s.compare(ctx, src, dst); err != nil || !changed {
 				return err
 			}
-			dst, err = s.dstFS.readHash(ctx, s.dstTree, path, s.state.Target[path])
-			if err != nil {
-				return err
-			}
-			if src.Equal(dst) || !s.isChanged(src, s.state.Source[path]) && !s.isChanged(dst, s.state.Target[path]) {
+			if !src.isChanged() && !dst.isChanged() {
 				return nil
 			}
 			policy, err = s.handleConflict(ctx, path, src, dst)
@@ -332,37 +345,37 @@ func (s *syncer) oneWayTasks(ctx context.Context) ([]syncTask, error) {
 		case ConflictPreferSrc:
 		case ConflictPreferDst, ConflictSkip:
 			s.skippedConflicts[path] = true
-			if entry.IsDir {
+			if src.IsDir() {
 				return fs.SkipDir
 			}
 			return nil
 		default:
-			if dst != nil && src.IsDir != dst.IsDir {
+			if dst != nil && src.IsDir() != dst.IsDir() {
 				return fmt.Errorf("%w: %s: file/directory mismatch", ErrSyncConflict, path)
 			}
 			return fmt.Errorf("%w: %s", ErrSyncConflict, path)
 		}
-		if dst != nil && src.IsDir != dst.IsDir {
+		if dst != nil && src.IsDir() != dst.IsDir() {
 			op := OpRemove
-			if dst.IsDir {
+			if dst.IsDir() {
 				op = OpRmdir
 			}
 			tasks = append(tasks, syncTask{
 				op:      op,
 				path:    path,
-				entry:   dst,
+				record:  dst.toRecord(),
 				replace: true,
 				reverse: false,
 			})
 		}
 		op := OpCopy
-		if src.IsDir {
+		if src.IsDir() {
 			op = OpMkdir
 		}
 		tasks = append(tasks, syncTask{
 			op:      op,
 			path:    path,
-			entry:   src,
+			record:  src.toRecord(),
 			reverse: false,
 		})
 		return nil
@@ -370,38 +383,38 @@ func (s *syncer) oneWayTasks(ctx context.Context) ([]syncTask, error) {
 		return nil, err
 	}
 	if s.option.Delete {
-		if err := s.dstTree.walk(func(path string, entry *Entry) error {
+		if err := s.dstTree.walk(func(path string, dst *entry) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
 			if s.skippedConflicts[path] || s.srcTree.isSkipped(path, false) {
-				if entry.IsDir {
+				if dst.IsDir() {
 					return fs.SkipDir
 				}
 				return nil
 			}
 			if src := s.srcTree.get(path); src != nil {
 				// Prune obsolete descendants when a file replaced the target directory.
-				if entry.IsDir && !src.IsDir {
+				if dst.IsDir() && !src.IsDir() {
 					return fs.SkipDir
 				}
 				return nil
 			}
-			if entry.IsDir && s.dstTree.isSkipped(path, true) {
+			if dst.IsDir() && s.dstTree.isSkipped(path, true) {
 				s.skippedConflicts[path] = true
 				return fs.SkipDir
 			}
 			op := OpRemove
-			if entry.IsDir {
+			if dst.IsDir() {
 				op = OpRmdir
 			}
 			tasks = append(tasks, syncTask{
 				op:      op,
 				path:    path,
-				entry:   entry,
+				record:  dst.toRecord(),
 				reverse: false,
 			})
-			if entry.IsDir {
+			if dst.IsDir() {
 				return fs.SkipDir
 			}
 			return nil
@@ -419,46 +432,46 @@ func (s *syncer) oneWayTasks(ctx context.Context) ([]syncTask, error) {
 func (s *syncer) twoWayTasks(ctx context.Context) ([]syncTask, error) {
 	tasks := make([]syncTask, 0)
 	taken := make(map[string]bool)
-	sourceState := newSyncTree(s.state.Source)
-	targetState := newSyncTree(s.state.Target)
+	srcState := stateTree(s.state.Source)
+	dstState := stateTree(s.state.Target)
 	// Resolve deletions against the surviving subtree. Other conflicts retain
 	// the caller's policy.
-	onConflict := func(path string, src, dst *Entry) (ConflictPolicy, error) {
-		if s.isDeleted(dst, s.state.Target[path]) || s.isDeleted(src, s.state.Source[path]) {
-			current, previous, fsys := s.srcTree, sourceState, s.srcFS
+	onConflict := func(path string, src, dst *entry) (ConflictPolicy, error) {
+		if s.isDeleted(src, s.state.Source[path]) || s.isDeleted(dst, s.state.Target[path]) {
+			current, previous := s.srcTree, srcState
 			policy := ConflictPreferDst
 			if src == nil {
-				current, previous, fsys = s.dstTree, targetState, s.dstFS
+				current, previous = s.dstTree, dstState
 				policy = ConflictPreferSrc
 			}
-			if (src != nil && src.IsDir || dst != nil && dst.IsDir) && current.isSkipped(path, true) {
+			if (src != nil && src.IsDir() || dst != nil && dst.IsDir()) && current.isSkipped(path, true) {
 				return ConflictSkip, nil
 			}
 			changed := false
-			compare := func(childPath string, _ *Entry) error {
+			compareChild := func(childPath string, _ *entry) error {
 				if err := ctx.Err(); err != nil {
 					return err
 				}
-				cur, prev := current.get(childPath), previous.get(childPath)
-				if cur != nil && prev != nil && !cur.IsDir && !prev.IsDir {
+				if child := current.get(childPath); child == nil {
+					changed = true
+				} else {
 					var err error
-					cur, err = fsys.readHash(ctx, current, childPath, prev)
+					changed, err = s.isChanged(ctx, child)
 					if err != nil {
 						return err
 					}
 				}
-				changed = s.isChanged(cur, prev)
 				if changed {
 					return fs.SkipAll
 				}
 				return nil
 			}
 			for _, tree := range []*syncTree{current, previous} {
-				if err := tree.walkSubtree(path, compare); err != nil {
+				if err := tree.walkSubtree(path, compareChild); err != nil {
 					return ConflictAbort, err
 				}
 				if changed {
-					return s.handleConflict(ctx, path, s.srcTree.get(path), s.dstTree.get(path))
+					return s.handleConflict(ctx, path, src, dst)
 				}
 			}
 			return policy, nil
@@ -469,38 +482,38 @@ func (s *syncer) twoWayTasks(ctx context.Context) ([]syncTask, error) {
 		}
 		switch policy {
 		case ConflictPreferSrc:
-			if dst != nil && dst.IsDir && s.dstTree.isSkipped(path, true) {
+			if dst != nil && dst.IsDir() && s.dstTree.isSkipped(path, true) {
 				return ConflictSkip, nil
 			}
 		case ConflictPreferDst:
-			if src != nil && src.IsDir && s.srcTree.isSkipped(path, true) {
+			if src != nil && src.IsDir() && s.srcTree.isSkipped(path, true) {
 				return ConflictSkip, nil
 			}
 		}
 		return policy, nil
 	}
 	for _, tree := range []*syncTree{s.srcTree, s.dstTree} {
-		if err := tree.walk(func(path string, entry *Entry) error {
+		if err := tree.walk(func(path string, current *entry) error {
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			var src, dst *Entry
+			var src, dst *entry
 			if tree == s.srcTree {
-				src, dst = entry, s.dstTree.get(path)
+				src, dst = current, s.dstTree.get(path)
 			} else {
-				src, dst = s.srcTree.get(path), entry
+				src, dst = s.srcTree.get(path), current
 			}
 			if s.skippedConflicts[path] ||
 				src == nil && s.srcTree.isSkipped(path, false) ||
 				dst == nil && s.dstTree.isSkipped(path, false) {
-				if entry.IsDir {
+				if current.IsDir() {
 					return fs.SkipDir
 				}
 				return nil
 			}
 			// Shared paths were already planned during the source traversal.
 			if tree == s.dstTree && src != nil {
-				if entry.IsDir && !src.IsDir {
+				if current.IsDir() && !src.IsDir() {
 					return fs.SkipDir
 				}
 				return nil
@@ -519,28 +532,21 @@ func (s *syncer) twoWayTasks(ctx context.Context) ([]syncTask, error) {
 				if s.isDeleted(dst, s.state.Target[path]) {
 					policy, err = onConflict(path, src, dst)
 				}
-			case src.IsDir != dst.IsDir:
+			case src.IsDir() != dst.IsDir():
 				policy, err = onConflict(path, src, dst)
-			case src.IsDir:
+			case src.IsDir():
 				return nil
 			default:
-				src, err = s.srcFS.readHash(ctx, s.srcTree, path, s.state.Source[path])
-				if err != nil {
+				if changed, err := s.compare(ctx, src, dst); err != nil || !changed {
 					return err
 				}
-				dst, err = s.dstFS.readHash(ctx, s.dstTree, path, s.state.Target[path])
-				if err != nil {
-					return err
-				}
-				if src.Equal(dst) {
+				srcChanged, dstChanged := src.isChanged(), dst.isChanged()
+				switch {
+				case !srcChanged && !dstChanged:
 					return nil
-				}
-				if !s.isChanged(src, s.state.Source[path]) {
-					if !s.isChanged(dst, s.state.Target[path]) {
-						return nil
-					}
+				case !srcChanged:
 					policy = ConflictPreferDst
-				} else if s.isChanged(dst, s.state.Target[path]) {
+				case dstChanged:
 					policy, err = onConflict(path, src, dst)
 				}
 			}
@@ -574,7 +580,7 @@ func (s *syncer) twoWayTasks(ctx context.Context) ([]syncTask, error) {
 				}
 			case ConflictSkip:
 				s.skippedConflicts[path] = true
-				if entry.IsDir {
+				if current.IsDir() {
 					return fs.SkipDir
 				}
 				return nil
@@ -584,38 +590,38 @@ func (s *syncer) twoWayTasks(ctx context.Context) ([]syncTask, error) {
 				return fmt.Errorf("sync: invalid conflict policy %d for %s", policy, path)
 			}
 
-			if dst != nil && (src == nil || src.IsDir != dst.IsDir) {
+			if dst != nil && (src == nil || src.IsDir() != dst.IsDir()) {
 				op := OpRemove
-				if dst.IsDir {
+				if dst.IsDir() {
 					op = OpRmdir
 				}
 				tasks = append(tasks, syncTask{
 					op:      op,
 					path:    path,
-					entry:   dst,
+					record:  dst.toRecord(),
 					replace: src != nil,
 					root:    path,
 					reverse: reverse,
 				})
 			}
 			if src != nil {
-				if !src.IsDir {
+				if !src.IsDir() {
 					tasks = append(tasks, syncTask{
 						op:      OpCopy,
 						path:    path,
-						entry:   srcTree.get(path),
+						record:  src.toRecord(),
 						root:    path,
 						reverse: reverse,
 					})
-				} else if err := srcTree.walkSubtree(path, func(childPath string, child *Entry) error {
+				} else if err := srcTree.walkSubtree(path, func(childPath string, child *entry) error {
 					op := OpCopy
-					if child.IsDir {
+					if child.IsDir() {
 						op = OpMkdir
 					}
 					tasks = append(tasks, syncTask{
 						op:      op,
 						path:    childPath,
-						entry:   child,
+						record:  child.toRecord(),
 						root:    path,
 						reverse: reverse,
 					})
@@ -624,7 +630,7 @@ func (s *syncer) twoWayTasks(ctx context.Context) ([]syncTask, error) {
 					return err
 				}
 			}
-			if entry.IsDir {
+			if current.IsDir() {
 				return fs.SkipDir
 			}
 			return nil
@@ -640,40 +646,40 @@ func (s *syncer) twoWayTasks(ctx context.Context) ([]syncTask, error) {
 
 // keepBothTasks plans a rename and a cross-side backup copy. Directories stay
 // at the original path in type conflicts.
-func (s *syncer) keepBothTasks(path string, src, dst *Entry, taken map[string]bool) ([]syncTask, ConflictPolicy, error) {
+func (s *syncer) keepBothTasks(path string, src, dst *entry, taken map[string]bool) ([]syncTask, ConflictPolicy, error) {
 	switch {
 	case src == nil:
 		return nil, ConflictPreferDst, nil
 	case dst == nil:
 		return nil, ConflictPreferSrc, nil
 	}
-	file, reverse, policy := s.dstTree.get(path), false, ConflictPreferSrc
-	if !src.IsDir && dst.IsDir {
-		file, reverse, policy = s.srcTree.get(path), true, ConflictPreferDst
+	file, reverse, policy := dst, false, ConflictPreferSrc
+	if !src.IsDir() && dst.IsDir() {
+		file, reverse, policy = src, true, ConflictPreferDst
 	}
 	backup := s.conflictName(path, taken)
 	if s.option.Skipper != nil {
-		info := *file
-		info.Hash = ""
-		if s.option.Skipper(info.FileInfo(backup)) {
+		backupEntry := *file
+		backupEntry.path, backupEntry.hash = backup, ""
+		if s.option.Skipper(backupEntry.FileInfo()) {
 			return nil, ConflictAbort, fmt.Errorf("%w: conflict copy is filtered: %s", ErrSyncConflict, backup)
 		}
 	}
 	// These tasks share an owned snapshot, updated after the rename succeeds.
-	backupEntry := *file
+	backupRecord := *file.toRecord()
 	return []syncTask{
 		{
 			op:      OpRename,
 			path:    path,
 			newPath: backup,
-			entry:   &backupEntry,
+			record:  &backupRecord,
 			root:    path,
 			reverse: reverse,
 		},
 		{
 			op:      OpCopy,
 			path:    backup,
-			entry:   &backupEntry,
+			record:  &backupRecord,
 			root:    path,
 			reverse: !reverse,
 		},
@@ -713,10 +719,10 @@ func (s *syncer) notifyPhase(phase Phase, status Status, err error) {
 	s.option.OnEvent(PhaseEvent{Phase: phase, Status: status, Err: err})
 }
 
-func (s *syncer) handleConflict(ctx context.Context, path string, src, dst *Entry) (ConflictPolicy, error) {
+func (s *syncer) handleConflict(ctx context.Context, path string, src, dst *entry) (ConflictPolicy, error) {
 	conflict := Conflict{
-		Source:      src.FileInfo(path),
-		Target:      dst.FileInfo(path),
+		Source:      src.FileInfo(),
+		Target:      dst.FileInfo(),
 		SourceState: s.state.Source[path].FileInfo(path),
 		TargetState: s.state.Target[path].FileInfo(path),
 	}

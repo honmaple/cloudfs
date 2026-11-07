@@ -315,7 +315,7 @@ func TestDefaultConfigPrecedenceAndFailure(t *testing.T) {
 
 func TestFileStateStoreReadsExistingEnvelope(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "state.json")
-	const stored = `{"source":"left","target":"right","metadata":{"type":"bisync","version":1,"revision":"existing-revision","source":{},"target":{}}}`
+	const stored = `{"source":"left","target":"right","metadata":{"hash_algorithm":5,"version":1,"revision":"existing-revision","source":{},"target":{}}}`
 	if err := os.WriteFile(filename, []byte(stored), 0600); err != nil {
 		t.Fatal(err)
 	}

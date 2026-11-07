@@ -2,12 +2,16 @@ package syncer
 
 import (
 	"context"
-	"crypto/sha256"
+	"crypto"
+	_ "crypto/md5"
+	_ "crypto/sha1"
+	_ "crypto/sha512"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
 	stdpath "path"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -28,44 +32,116 @@ type FileInfo interface {
 	ModTime() time.Time
 }
 
-type fileInfo struct {
-	path  string
-	entry Entry
+// entry retains scanned metadata and loads its content hash on demand.
+type entry struct {
+	path    string
+	size    int64
+	modTime time.Time
+	isDir   bool
+	hash    string
+	fsys    *syncFS
+	record  *Record // Historical baseline for this side and path.
 }
 
-func (info *fileInfo) Path() string {
-	return info.path
+// toRecord captures only metadata and hashes already known; it never performs I/O.
+func (e *entry) toRecord() *Record {
+	if e == nil {
+		return nil
+	}
+	return &Record{IsDir: e.isDir, Size: e.size, ModTime: e.modTime, Hash: e.hash}
 }
 
-func (info *fileInfo) Size() int64 {
-	return info.entry.Size
+// isChanged compares the entry with its historical record.
+// A newly known hash cannot confirm unchanged content against a record without a hash.
+func (e *entry) isChanged() bool {
+	if e.record == nil {
+		return true
+	}
+	return !e.Equal(e.record.entry(e.path)) || e.hash != "" && e.record.Hash == ""
 }
 
-func (info *fileInfo) Hash() string {
-	return info.entry.Hash
+func (e *entry) loadHash(ctx context.Context) error {
+	if e.isDir || e.hash != "" || e.fsys == nil {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if record := e.record; record != nil &&
+		!record.IsDir && record.Hash != "" && e.size >= 0 && e.size == record.Size &&
+		!e.modTime.IsZero() && e.modTime.Equal(record.ModTime) {
+		e.hash = record.Hash
+		return nil
+	}
+	hash, err := e.fsys.Hash(ctx, e.path, e.fsys.algorithm)
+	if err != nil {
+		return err
+	}
+	e.hash = hash
+	return nil
 }
 
-func (info *fileInfo) IsDir() bool {
-	return info.entry.IsDir
+func (e *entry) Path() string {
+	return e.path
 }
 
-func (info *fileInfo) ModTime() time.Time {
-	return info.entry.ModTime
+func (e *entry) Size() int64 {
+	return e.size
+}
+
+func (e *entry) Hash() string {
+	return e.hash
+}
+
+func (e *entry) ModTime() time.Time {
+	return e.modTime
+}
+
+func (e *entry) IsDir() bool {
+	return e.isDir
+}
+
+// FileInfo captures a read-only snapshot of the entry's known metadata.
+func (e *entry) FileInfo() FileInfo {
+	if e == nil {
+		return nil
+	}
+	snapshot := *e
+	snapshot.fsys, snapshot.record = nil, nil
+	return &snapshot
+}
+
+// Equal compares known metadata and hashes without performing I/O.
+func (e *entry) Equal(other *entry) bool {
+	if e == nil || other == nil {
+		return e == other
+	}
+	if e.isDir != other.isDir {
+		return false
+	}
+	if e.isDir {
+		return true
+	}
+	if e.hash != "" && other.hash != "" {
+		return e.hash == other.hash
+	}
+	return e.size == other.size && e.modTime.Equal(other.modTime)
 }
 
 type syncFS struct {
 	cloudfs.FS
-	option Option
+	option    Option
+	algorithm crypto.Hash
 }
 
-func (fsys *syncFS) scan(ctx context.Context) (*syncTree, error) {
+func (fsys *syncFS) scan(ctx context.Context, records map[string]*Record) (*syncTree, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
 	const root = "/"
 
-	entries := make(map[string]*Entry)
+	entries := make(map[string]*entry)
 	skipped := make(map[string]bool)
 	if err := cloudfs.WalkDir(ctx, fsys, root, func(path string, info cloudfs.FileInfo, walkErr error) error {
 		if walkErr != nil {
@@ -90,12 +166,12 @@ func (fsys *syncFS) scan(ctx context.Context) (*syncTree, error) {
 		if entries[path] != nil || skipped[path] {
 			return fmt.Errorf("sync: duplicate path %s", path)
 		}
-		entry := &Entry{IsDir: info.IsDir()}
-		if !entry.IsDir {
-			entry.Size, entry.ModTime = info.Size(), info.ModTime().UTC()
+		e := &entry{path: path, isDir: info.IsDir(), fsys: fsys, record: records[path]}
+		if !e.isDir {
+			e.size, e.modTime = info.Size(), info.ModTime().UTC()
 		}
 		if fsys.option.Skipper != nil {
-			skip := fsys.option.Skipper(entry.FileInfo(path))
+			skip := fsys.option.Skipper(e.FileInfo())
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -107,7 +183,7 @@ func (fsys *syncFS) scan(ctx context.Context) (*syncTree, error) {
 				return nil
 			}
 		}
-		entries[path] = entry
+		entries[path] = e
 		return nil
 	}); err != nil {
 		return nil, err
@@ -117,48 +193,8 @@ func (fsys *syncFS) scan(ctx context.Context) (*syncTree, error) {
 	return tree, nil
 }
 
-// readHash enriches one entry on demand. Cached entries are new snapshots;
-// neither the scanned entries nor the loaded historical state are modified.
-func (fsys *syncFS) readHash(ctx context.Context, tree *syncTree, path string, prev *Entry) (*Entry, error) {
-	entry := tree.get(path)
-	if entry == nil || entry.IsDir || entry.Hash != "" || !fsys.option.Checksum && !fsys.option.HashOnChange {
-		return entry, nil
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	next := *entry
-	if fsys.option.HashOnChange && !fsys.option.Checksum && prev != nil && !prev.IsDir &&
-		prev.Hash != "" && entry.Size >= 0 && entry.Size == prev.Size &&
-		!entry.ModTime.IsZero() && entry.ModTime.Equal(prev.ModTime) {
-		next.Hash = prev.Hash
-	} else {
-		reader, err := fsys.Open(ctx, path)
-		if err != nil {
-			return nil, err
-		}
-		hasher := sha256.New()
-		n, readErr := ioutil.CopyWithContext(ctx, hasher, reader)
-		if err := errors.Join(readErr, reader.Close()); err != nil {
-			return nil, err
-		}
-		if err := fsys.checkFileSnapshot(ctx, path, entry); err != nil {
-			return nil, err
-		}
-		if entry.Size >= 0 && n != entry.Size {
-			return nil, ErrSourceChanged
-		}
-		next.Hash = hex.EncodeToString(hasher.Sum(nil))
-	}
-	if tree.hashes == nil {
-		tree.hashes = make(map[string]*Entry)
-	}
-	tree.hashes[path] = &next
-	return &next, nil
-}
-
 // checkFileSnapshot compares metadata only; hashes are checked on existing reads.
-func (fsys *syncFS) checkFileSnapshot(ctx context.Context, path string, entry *Entry) error {
+func (fsys *syncFS) checkFileSnapshot(ctx context.Context, path string, record *Record) error {
 	info, err := fsys.Stat(ctx, path)
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
@@ -167,25 +203,65 @@ func (fsys *syncFS) checkFileSnapshot(ctx context.Context, path string, entry *E
 		return err
 	}
 	if info.IsDir() ||
-		entry.Size >= 0 && info.Size() >= 0 && entry.Size != info.Size() ||
-		!entry.ModTime.Equal(info.ModTime()) {
+		record.Size >= 0 && info.Size() >= 0 && record.Size != info.Size() ||
+		!record.ModTime.Equal(info.ModTime()) {
 		return ErrSourceChanged
 	}
 	return nil
 }
 
-// syncTree retains immutable scan entries and sorted children. Planning adds
-// separately allocated hash snapshots; execution only reads the resulting view.
-type syncTree struct {
-	entries  map[string]*Entry
-	hashes   map[string]*Entry // Entries enriched on demand during planning.
-	children map[string][]string
-	skipped  map[string]bool // Entries excluded during scanning.
+// Hash prefers a backend digest and falls back to reading the file.
+func (fsys *syncFS) Hash(ctx context.Context, path string, algorithm crypto.Hash) (string, error) {
+	if hasher, ok := fsys.FS.(cloudfs.Hasher); ok {
+		hash, err := hasher.Hash(ctx, path, algorithm)
+		if err != nil && !errors.Is(err, cloudfs.ErrNotSupport) {
+			return "", err
+		}
+		if err == nil && hash != "" {
+			return hash, nil
+		}
+	}
+	if !algorithm.Available() {
+		return "", cloudfs.ErrNotSupport
+	}
+	reader, err := fsys.Open(ctx, path)
+	if err != nil {
+		return "", err
+	}
+	hasher := algorithm.New()
+	_, readErr := ioutil.CopyWithContext(ctx, hasher, reader)
+	if err := errors.Join(readErr, reader.Close()); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
-// newSyncTree takes ownership of entries; neither the map nor its Entry objects
-// may be modified afterward.
-func newSyncTree(entries map[string]*Entry) *syncTree {
+// Hashes includes backend algorithms and algorithms available for streamed hashing.
+func (fsys *syncFS) Hashes() []crypto.Hash {
+	var algorithms []crypto.Hash
+	if hasher, ok := fsys.FS.(cloudfs.Hasher); ok {
+		algorithms = slices.Clone(hasher.Hashes())
+	}
+	for _, algorithm := range []crypto.Hash{
+		crypto.MD5, crypto.SHA1, crypto.SHA256, crypto.SHA384,
+		crypto.SHA512, crypto.SHA512_224, crypto.SHA512_256,
+	} {
+		if !slices.Contains(algorithms, algorithm) {
+			algorithms = append(algorithms, algorithm)
+		}
+	}
+	return algorithms
+}
+
+// syncTree retains file information and sorted children for planning.
+type syncTree struct {
+	skipped  map[string]bool // Entries excluded during scanning.
+	entries  map[string]*entry
+	children map[string][]string
+}
+
+// newSyncTree takes ownership of entries. Hashes are populated during planning.
+func newSyncTree(entries map[string]*entry) *syncTree {
 	children := make(map[string][]string)
 	for path := range entries {
 		parent := stdpath.Dir(path)
@@ -197,10 +273,7 @@ func newSyncTree(entries map[string]*Entry) *syncTree {
 	return &syncTree{entries: entries, children: children}
 }
 
-func (tree *syncTree) get(path string) *Entry {
-	if entry := tree.hashes[path]; entry != nil {
-		return entry
-	}
+func (tree *syncTree) get(path string) *entry {
 	return tree.entries[path]
 }
 
@@ -208,7 +281,7 @@ func (tree *syncTree) get(path string) *Entry {
 // Paths excluded during scanning are not passed to fn.
 // SkipDir skips directory descendants; on a file it skips remaining siblings.
 // SkipAll stops traversal successfully. Other errors are returned to the caller.
-func (tree *syncTree) walk(fn func(string, *Entry) error) error {
+func (tree *syncTree) walk(fn func(string, *entry) error) error {
 	err := tree.walkPaths(tree.children["/"], fn)
 	if err == fs.SkipDir || err == fs.SkipAll {
 		return nil
@@ -217,7 +290,7 @@ func (tree *syncTree) walk(fn func(string, *Entry) error) error {
 }
 
 // walkSubtree visits path and its descendants; a missing path visits nothing.
-func (tree *syncTree) walkSubtree(path string, fn func(string, *Entry) error) error {
+func (tree *syncTree) walkSubtree(path string, fn func(string, *entry) error) error {
 	if tree.get(path) == nil {
 		return nil
 	}
@@ -228,16 +301,16 @@ func (tree *syncTree) walkSubtree(path string, fn func(string, *Entry) error) er
 	return err
 }
 
-func (tree *syncTree) walkPaths(paths []string, fn func(string, *Entry) error) error {
+func (tree *syncTree) walkPaths(paths []string, fn func(string, *entry) error) error {
 	for _, path := range paths {
-		entry := tree.get(path)
-		if err := fn(path, entry); err != nil {
-			if err == fs.SkipDir && entry.IsDir {
+		child := tree.get(path)
+		if err := fn(path, child); err != nil {
+			if err == fs.SkipDir && child.IsDir() {
 				continue
 			}
 			return err
 		}
-		if entry.IsDir {
+		if child.IsDir() {
 			if err := tree.walkPaths(tree.children[path], fn); err != nil && err != fs.SkipDir {
 				return err
 			}

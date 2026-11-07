@@ -42,7 +42,7 @@ func TestSkipper(t *testing.T) {
 			removeSyncPath(t, dstDir, "gone")
 			skip := func(info syncer.FileInfo) bool {
 				if info.Path() == "/gone" {
-					t.Fatal("filter received a historical entry absent from both scans")
+					t.Fatal("filter received a historical record absent from both scans")
 				}
 				return strings.HasSuffix(info.Path(), "/secret") || info.Path() == "/ignored"
 			}

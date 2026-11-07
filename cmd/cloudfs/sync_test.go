@@ -61,7 +61,7 @@ func TestSyncDeleteGuard(t *testing.T) {
 	}
 }
 
-func TestSyncHashOnChange(t *testing.T) {
+func TestSyncChecksumWithState(t *testing.T) {
 	for _, mode := range []string{"sync", "bisync"} {
 		t.Run(mode, func(t *testing.T) {
 			config, left, right := namedPair(t)
@@ -76,13 +76,8 @@ func TestSyncHashOnChange(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if mode == "sync" {
-				if _, err := cliRun(config, mode, "--hash-on-change", "left:/", "right:/"); !errors.Is(err, syncer.ErrSyncState) {
-					t.Fatalf("accepted missing state: %v", err)
-				}
-			}
 			for range 2 {
-				if _, err := cliRun(config, mode, "--hash-on-change", "--state", state, "left:/", "right:/"); err != nil {
+				if _, err := cliRun(config, mode, "--checksum", "--state", state, "left:/", "right:/"); err != nil {
 					t.Fatal(err)
 				}
 			}

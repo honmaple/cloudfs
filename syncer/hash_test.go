@@ -3,17 +3,22 @@ package syncer_test
 import (
 	"bytes"
 	"context"
+	"crypto"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 
+	"github.com/honmaple/cloudfs"
+	"github.com/honmaple/cloudfs/middleware"
 	"github.com/honmaple/cloudfs/syncer"
 )
 
-func TestHashOnChangeReusesState(t *testing.T) {
+func TestSyncReusesSavedHashes(t *testing.T) {
 	for _, mode := range []string{"sync", "bisync", "reverse"} {
 		t.Run(mode, func(t *testing.T) {
 			src, dst, srcDir, dstDir := syncPair(t)
@@ -39,8 +44,7 @@ func TestHashOnChangeReusesState(t *testing.T) {
 				var err error
 				if mode == "sync" {
 					err = syncer.Sync(context.Background(), source, target, syncer.Option{
-						HashOnChange: true,
-
+						Checksum:   true,
 						StateStore: store,
 						OnConflict: syncer.PreferSrc(),
 						OnEvent:    handler,
@@ -51,10 +55,10 @@ func TestHashOnChangeReusesState(t *testing.T) {
 						left, right = target, source
 					}
 					err = syncer.Sync(context.Background(), left, right, syncer.Option{
-						Mode:         syncer.ModeTwoWay,
-						HashOnChange: true,
-						StateStore:   store,
-						OnEvent:      handler,
+						Mode:       syncer.ModeTwoWay,
+						Checksum:   true,
+						StateStore: store,
+						OnEvent:    handler,
 					})
 				}
 				if err != nil {
@@ -116,65 +120,59 @@ func TestHashOnChangeReusesState(t *testing.T) {
 	}
 }
 
-func TestChecksumOverridesHashOnChange(t *testing.T) {
+func TestSyncWithStateRequiresChecksumForHashComparison(t *testing.T) {
 	src, dst, srcDir, dstDir := syncPair(t)
 	putSyncFile(t, srcDir, "file", "data")
 	source, target := &observedSyncFS{FS: src}, &observedSyncFS{FS: dst}
-	option := syncer.Option{
-		HashOnChange: true,
-
-		StateStore: &singleSyncStore{},
-		OnConflict: syncer.PreferSrc(),
-	}
+	option := syncer.Option{StateStore: &singleSyncStore{}}
 	ctx := context.Background()
 	if err := syncer.Sync(ctx, source, target, option); err != nil {
 		t.Fatal(err)
 	}
-	info, err := os.Stat(filepath.Join(srcDir, "file"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	putSyncFile(t, srcDir, "file", "DATA")
-	if err := os.Chtimes(filepath.Join(srcDir, "file"), info.ModTime(), info.ModTime()); err != nil {
+
+	stamp := time.Unix(1000000000, 0)
+	if err := os.Chtimes(filepath.Join(srcDir, "file"), stamp, stamp); err != nil {
 		t.Fatal(err)
 	}
 	source.rejectData, target.rejectData = true, true
-	if err := syncer.Sync(ctx, source, target, option); err != nil {
-		t.Fatal(err)
+	if err := syncer.Sync(ctx, source, target, option); !errors.Is(err, syncer.ErrSyncConflict) {
+		t.Fatalf("metadata comparison returned %v", err)
 	}
-	wantSyncFile(t, dstDir, "file", "data")
-	source.rejectData, target.rejectData = false, false
+	if source.dataOpens != 1 || target.dataOpens != 0 {
+		t.Fatalf("metadata comparison opened files: %d/%d", source.dataOpens, target.dataOpens)
+	}
+
+	source.rejectData = false
 	option.Checksum = true
 	if err := syncer.Sync(ctx, source, target, option); err != nil {
 		t.Fatal(err)
 	}
-	if source.dataOpens != 3 || target.dataOpens != 1 {
-		t.Fatalf("full checksum did not read both files: %d/%d", source.dataOpens, target.dataOpens)
+	if source.dataOpens != 2 || target.dataOpens != 0 {
+		t.Fatalf("checksum should hash the changed side and reuse the saved target hash: %d/%d", source.dataOpens, target.dataOpens)
 	}
-	wantSyncFile(t, dstDir, "file", "DATA")
+	wantSyncFile(t, dstDir, "file", "data")
 }
 
-func TestHashOnChangeBootstrapsMissingHashes(t *testing.T) {
+func TestSyncFillsMissingHashesBeforeComparing(t *testing.T) {
 	for _, bisync := range []bool{false, true} {
 		t.Run(fmt.Sprint(bisync), func(t *testing.T) {
 			src, dst, srcDir, _ := syncPair(t)
 			putSyncFile(t, srcDir, "file", "data")
 			store := &singleSyncStore{}
-			run := func(incremental bool) error {
+			run := func() error {
 				if bisync {
 					return syncer.Sync(context.Background(), src, dst, syncer.Option{
-						Mode:         syncer.ModeTwoWay,
-						StateStore:   store,
-						HashOnChange: incremental,
+						Mode:       syncer.ModeTwoWay,
+						Checksum:   true,
+						StateStore: store,
 					})
 				}
 				return syncer.Sync(context.Background(), src, dst, syncer.Option{
-
-					StateStore:   store,
-					HashOnChange: incremental,
+					Checksum:   true,
+					StateStore: store,
 				})
 			}
-			if err := run(false); err != nil {
+			if err := run(); err != nil {
 				t.Fatal(err)
 			}
 			state, err := store.Load(context.Background())
@@ -195,7 +193,7 @@ func TestHashOnChangeBootstrapsMissingHashes(t *testing.T) {
 				t.Fatal(err)
 			}
 			previous, saves := bytes.Clone(store.data), store.saves
-			if err := run(true); !errors.Is(err, syncer.ErrSyncConflict) {
+			if err := run(); !errors.Is(err, syncer.ErrSyncConflict) {
 				t.Fatalf("newly discovered content mismatch was ignored: %v", err)
 			}
 			if store.saves != saves || !bytes.Equal(previous, store.data) {
@@ -205,23 +203,15 @@ func TestHashOnChangeBootstrapsMissingHashes(t *testing.T) {
 	}
 }
 
-func TestHashOnChangeRequiresStateStore(t *testing.T) {
-	if err := syncer.Sync(context.Background(), nil, nil, syncer.Option{
-		HashOnChange: true,
-	}); !errors.Is(err, syncer.ErrSyncState) {
-		t.Fatalf("got %v", err)
-	}
-}
-
-func TestHashOnChangeDoesNotTreatTouchAsModification(t *testing.T) {
+func TestSyncHashesDistinguishTouchFromModification(t *testing.T) {
 	for _, reverse := range []bool{false, true} {
 		t.Run(fmt.Sprint(reverse), func(t *testing.T) {
 			src, dst, srcDir, dstDir := syncPair(t)
 			putSyncFile(t, srcDir, "dir/file", "data")
 			option := syncer.Option{
-				Mode:         syncer.ModeTwoWay,
-				HashOnChange: true,
-				StateStore:   &singleSyncStore{},
+				Mode:       syncer.ModeTwoWay,
+				Checksum:   true,
+				StateStore: &singleSyncStore{},
 			}
 			if err := syncer.Sync(context.Background(), src, dst, option); err != nil {
 				t.Fatal(err)
@@ -379,13 +369,12 @@ func TestChecksumSubtreeComparisonCachesHashes(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			info, err := os.Stat(filepath.Join(dstDir, "dir/b"))
-			if err != nil {
-				t.Fatal(err)
-			}
 			putSyncFile(t, dstDir, "dir/b", "new")
-			if err := os.Chtimes(filepath.Join(dstDir, "dir/b"), info.ModTime(), info.ModTime()); err != nil {
-				t.Fatal(err)
+			stamp := time.Unix(1000000000, 0)
+			for _, path := range []string{"dir/a", "dir/b"} {
+				if err := os.Chtimes(filepath.Join(dstDir, path), stamp, stamp); err != nil {
+					t.Fatal(err)
+				}
 			}
 			removeSyncPath(t, srcDir, "dir")
 			source, target := &observedSyncFS{FS: src}, &observedSyncFS{FS: dst}
@@ -443,23 +432,21 @@ func TestNewFileDryRunDoesNotReadContents(t *testing.T) {
 			var err error
 			if mode == "sync" {
 				err = syncer.Sync(context.Background(), source, target, syncer.Option{
-					DryRun:       true,
-					Checksum:     true,
-					HashOnChange: true,
-					StateStore:   store,
-					OnEvent:      handler,
+					DryRun:     true,
+					Checksum:   true,
+					StateStore: store,
+					OnEvent:    handler,
 				})
 			} else {
 				if mode == "reverse" {
 					source, target = target, source
 				}
 				err = syncer.Sync(context.Background(), source, target, syncer.Option{
-					Mode:         syncer.ModeTwoWay,
-					DryRun:       true,
-					Checksum:     true,
-					HashOnChange: true,
-					StateStore:   store,
-					OnEvent:      handler,
+					Mode:       syncer.ModeTwoWay,
+					DryRun:     true,
+					Checksum:   true,
+					StateStore: store,
+					OnEvent:    handler,
 				})
 			}
 			if err != nil || planned != 1 || source.dataOpens != 0 || target.dataOpens != 0 || store.saves != 0 {
@@ -499,5 +486,161 @@ func TestTypeReplacementDryRunDoesNotReadContents(t *testing.T) {
 			wantSyncFile(t, srcDir, "dir/file", "source")
 			wantSyncFile(t, dstDir, "dir", "target")
 		})
+	}
+}
+
+// hashSyncFS models a driver with an optional backend hash capability.
+type hashSyncFS struct {
+	cloudfs.FS
+	algorithms []crypto.Hash
+	hash       func(context.Context, string, crypto.Hash) (string, error)
+}
+
+func (fsys *hashSyncFS) Hashes() []crypto.Hash {
+	return fsys.algorithms
+}
+
+func (fsys *hashSyncFS) Hash(ctx context.Context, path string, algorithm crypto.Hash) (string, error) {
+	return fsys.hash(ctx, path, algorithm)
+}
+
+func TestChecksumUsesHasher(t *testing.T) {
+	digest := fmt.Sprintf("%x", sha256.Sum256([]byte("data")))
+	failure := errors.New("backend hash failed")
+	for _, test := range []struct {
+		name    string
+		hash    string
+		err     error
+		wantErr error
+		reads   int
+	}{
+		{name: "backend", hash: digest},
+		{name: "empty", reads: 1},
+		{name: "unsupported", err: fmt.Errorf("hash: %w", cloudfs.ErrNotSupport), reads: 1},
+		{name: "error", err: failure, wantErr: failure},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			src, dst, srcDir, dstDir := syncPair(t)
+			putSyncFile(t, srcDir, "folder/file", "data")
+			putSyncFile(t, dstDir, "file", "data")
+			source := &observedSyncFS{FS: src}
+			calls := 0
+			backend := &hashSyncFS{
+				FS: source,
+				hash: func(ctx context.Context, path string, algorithm crypto.Hash) (string, error) {
+					calls++
+					if path != "/folder/file" || algorithm != crypto.SHA256 {
+						t.Fatalf("unexpected hash request: %s %v", path, algorithm)
+					}
+					return test.hash, test.err
+				},
+			}
+			prefixed, err := cloudfs.New(backend, middleware.PrefixFS("/folder"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			err = syncer.Sync(context.Background(), prefixed, dst, syncer.Option{
+				Checksum: true,
+				DryRun:   true,
+			})
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("sync error = %v, want %v", err, test.wantErr)
+			}
+			if calls != 1 || source.dataOpens != test.reads {
+				t.Fatalf("hash calls = %d, file reads = %d; want 1, %d", calls, source.dataOpens, test.reads)
+			}
+		})
+	}
+}
+
+func TestSyncSelectsHashAlgorithm(t *testing.T) {
+	for _, mode := range []syncer.Mode{syncer.ModeOneWay, syncer.ModeTwoWay} {
+		for _, test := range []struct {
+			name   string
+			source []crypto.Hash
+			target []crypto.Hash
+			want   crypto.Hash
+		}{
+			{name: "md5", source: []crypto.Hash{crypto.MD5}, target: []crypto.Hash{crypto.MD5}, want: crypto.MD5},
+			{name: "sha1", source: []crypto.Hash{crypto.SHA1}, target: []crypto.Hash{crypto.SHA1}, want: crypto.SHA1},
+			{name: "source preference", source: []crypto.Hash{crypto.MD5, crypto.SHA256}, target: []crypto.Hash{crypto.SHA256, crypto.MD5}, want: crypto.MD5},
+			{name: "intersection", source: []crypto.Hash{crypto.MD5, crypto.SHA1}, target: []crypto.Hash{crypto.SHA1}, want: crypto.SHA1},
+			{name: "no intersection", source: []crypto.Hash{crypto.MD5}, target: []crypto.Hash{crypto.SHA1}, want: crypto.SHA256},
+			{name: "empty", want: crypto.SHA256},
+			{name: "unavailable", source: []crypto.Hash{crypto.Hash(255), crypto.MD5}, target: []crypto.Hash{crypto.Hash(255), crypto.MD5}, want: crypto.MD5},
+		} {
+			t.Run(fmt.Sprintf("mode=%d/%s", mode, test.name), func(t *testing.T) {
+				src, dst, srcDir, dstDir := syncPair(t)
+				putSyncFile(t, srcDir, "file", "data")
+				putSyncFile(t, dstDir, "file", "data")
+				putSyncFile(t, srcDir, "new", "new content")
+				source, target := &observedSyncFS{FS: src}, &observedSyncFS{FS: dst}
+				left := &hashSyncFS{FS: source, algorithms: test.source}
+				right := &hashSyncFS{FS: target, algorithms: test.target}
+				for _, backend := range []*hashSyncFS{left, right} {
+					backend.hash = func(ctx context.Context, path string, algorithm crypto.Hash) (string, error) {
+						if algorithm != test.want || path != "/file" {
+							t.Fatalf("unexpected hash request: %s %v", path, algorithm)
+						}
+						if !slices.Contains(backend.algorithms, algorithm) {
+							return "", cloudfs.ErrNotSupport
+						}
+						hash := algorithm.New()
+						hash.Write([]byte("data"))
+						return fmt.Sprintf("%x", hash.Sum(nil)), nil
+					}
+				}
+				sourceFS, err := cloudfs.New(left, middleware.PrefixFS("/"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				targetFS, err := cloudfs.New(right, middleware.PrefixFS("/"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				store := &singleSyncStore{}
+				option := syncer.Option{Mode: mode, Checksum: true, StateStore: store}
+				if err := syncer.Sync(context.Background(), sourceFS, targetFS, option); err != nil {
+					t.Fatal(err)
+				}
+				state, err := store.Load(context.Background())
+				if err != nil || !state.Valid() || state.HashAlgorithm != test.want {
+					t.Fatalf("invalid state: %+v, %v", state, err)
+				}
+				invalid := *state
+				invalid.HashAlgorithm = crypto.SHA512
+				if invalid.Valid() {
+					t.Fatal("state accepted digests with the wrong algorithm length")
+				}
+				for path, content := range map[string]string{"file": "data", "new": "new content"} {
+					hash := test.want.New()
+					hash.Write([]byte(content))
+					want := fmt.Sprintf("%x", hash.Sum(nil))
+					if state.Source[path].Hash != want || state.Target[path].Hash != want {
+						t.Fatalf("%s has the wrong comparison or transfer hash", path)
+					}
+				}
+				if slices.Contains(test.source, test.want) && slices.Contains(test.target, test.want) &&
+					(source.dataOpens != 1 || target.dataOpens != 0) {
+					t.Fatalf("backend comparison downloaded files: reads=%d/%d", source.dataOpens, target.dataOpens)
+				}
+				// Losing backend support must preserve the algorithm of the baseline.
+				left.algorithms, right.algorithms = nil, nil
+				left.hash = func(ctx context.Context, path string, algorithm crypto.Hash) (string, error) {
+					if algorithm != test.want {
+						t.Fatalf("baseline algorithm changed to %v", algorithm)
+					}
+					return "", cloudfs.ErrNotSupport
+				}
+				right.hash = left.hash
+				saves := store.saves
+				if err := syncer.Sync(context.Background(), sourceFS, targetFS, option); err != nil {
+					t.Fatal(err)
+				}
+				if store.saves != saves {
+					t.Fatal("unchanged files rewrote state after backend support changed")
+				}
+			})
+		}
 	}
 }

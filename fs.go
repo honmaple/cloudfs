@@ -2,6 +2,7 @@ package cloudfs
 
 import (
 	"context"
+	"crypto"
 )
 
 type (
@@ -17,6 +18,15 @@ type (
 		Open(context.Context, string) (File, error)
 		Create(context.Context, string) (FileWriter, error)
 		Close() error
+	}
+	// Hasher is an optional FS capability for retrieving content hashes.
+	// Hash returns a lowercase hexadecimal digest for the requested algorithm.
+	// An unavailable hash returns an empty string or ErrNotSupport. Implementations
+	// should use backend metadata rather than download the file to calculate it.
+	Hasher interface {
+		Hash(context.Context, string, crypto.Hash) (string, error)
+		// Hashes returns the algorithms supported by this filesystem, in preference order.
+		Hashes() []crypto.Hash
 	}
 	WrapFunc func(FS) (FS, error)
 )

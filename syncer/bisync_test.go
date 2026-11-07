@@ -25,7 +25,7 @@ func TestBiSyncMultipleRuns(t *testing.T) {
 		StateStore: &singleSyncStore{}}
 	putSyncFile(t, srcDir, "left/file", "left")
 	putSyncFile(t, dstDir, "right/file", "right")
-	putSyncFile(t, srcDir, "both-delete", "gone")
+	putSyncFile(t, srcDir, ".cloudfs-bisync.json", "gone")
 	if err := os.Mkdir(filepath.Join(srcDir, "empty"), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -38,6 +38,7 @@ func TestBiSyncMultipleRuns(t *testing.T) {
 	run()
 	wantSyncFile(t, srcDir, "right/file", "right")
 	wantSyncFile(t, dstDir, "left/file", "left")
+	wantSyncFile(t, dstDir, ".cloudfs-bisync.json", "gone")
 	if info, err := os.Stat(filepath.Join(dstDir, "empty")); err != nil || !info.IsDir() {
 		t.Fatalf("empty directory: %v", err)
 	}
@@ -48,8 +49,8 @@ func TestBiSyncMultipleRuns(t *testing.T) {
 	wantSyncFile(t, srcDir, "right/file", "new right")
 	removeSyncPath(t, srcDir, "left")
 	removeSyncPath(t, dstDir, "right")
-	removeSyncPath(t, srcDir, "both-delete")
-	removeSyncPath(t, dstDir, "both-delete")
+	removeSyncPath(t, srcDir, ".cloudfs-bisync.json")
+	removeSyncPath(t, dstDir, ".cloudfs-bisync.json")
 	run()
 	wantSyncAbsent(t, dstDir, "left")
 	wantSyncAbsent(t, srcDir, "right")
@@ -393,27 +394,6 @@ func TestBiSyncResolverFailureDoesNotWrite(t *testing.T) {
 	}
 }
 
-func TestBiOptionsAndMetadataValidation(t *testing.T) {
-	src, dst, srcDir, dstDir := syncPair(t)
-	putSyncFile(t, srcDir, "file", "keep")
-	for _, options := range [][]syncer.Option{
-		{{}, {}},
-		{{StateStore: &singleSyncStore{data: []byte(`{"version":2,"revision":"initial","type":"bisync","source":{},"target":{}}`)}}},
-		{{StateStore: &singleSyncStore{data: []byte(`{"version":1,"type":"bisync","source":{},"target":{}}`)}}},
-		{{StateStore: &singleSyncStore{data: []byte(`{"version":1,"revision":"initial","type":"sync","source":{},"target":{}}`)}}},
-		{{StateStore: &singleSyncStore{data: []byte(`{"version":1,"revision":"initial","type":"bisync","source":{"file":null},"target":{}}`)}}},
-		{{StateStore: &singleSyncStore{data: []byte(`{"version":1,"revision":"initial","type":"bisync","source":{"../escape":{}},"target":{}}`)}}},
-	} {
-		for index := range options {
-			options[index].Mode = syncer.ModeTwoWay
-		}
-		if err := syncer.Sync(context.Background(), src, dst, options...); err == nil {
-			t.Fatal("expected validation error")
-		}
-		wantSyncAbsent(t, dstDir, "file")
-	}
-}
-
 func TestBiSyncPrefixAndCancellation(t *testing.T) {
 	src, dst, srcDir, dstDir := syncPair(t)
 	putSyncFile(t, srcDir, "input/file", "scoped")
@@ -679,63 +659,6 @@ func TestBiSyncBackendMissingError(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantSyncFile(t, dstDir, "file", "data")
-}
-
-func TestBiSyncDoesNotReserveStateFilename(t *testing.T) {
-	src, dst, srcDir, dstDir := syncPair(t)
-	putSyncFile(t, srcDir, ".cloudfs-bisync.json", "user file")
-	option := syncer.Option{
-		Mode:       syncer.ModeTwoWay,
-		StateStore: &singleSyncStore{}}
-	if err := syncer.Sync(context.Background(), src, dst, option); err != nil {
-		t.Fatal(err)
-	}
-	wantSyncFile(t, dstDir, ".cloudfs-bisync.json", "user file")
-}
-
-func TestBiSyncCanChangeChecksumOption(t *testing.T) {
-	src, dst, srcDir, dstDir := syncPair(t)
-	putSyncFile(t, srcDir, "file", "contents")
-	ctx := context.Background()
-	option := syncer.Option{
-		Mode:       syncer.ModeTwoWay,
-		StateStore: &singleSyncStore{}}
-	for _, checksum := range []bool{false, true, false} {
-		option.Checksum = checksum
-		if err := syncer.Sync(ctx, src, dst, option); err != nil {
-			t.Fatal(err)
-		}
-	}
-	wantSyncFile(t, dstDir, "file", "contents")
-}
-
-func TestBiSyncMetadataAndStateFailuresBypassOnError(t *testing.T) {
-	for _, failure := range []string{"stat", "load", "save"} {
-		t.Run(failure, func(t *testing.T) {
-			src, dst, srcDir, _ := syncPair(t)
-			putSyncFile(t, srcDir, "file", "contents")
-			store := &singleSyncStore{}
-			var target cloudfs.FS = dst
-			switch failure {
-			case "load":
-				store.failLoad = true
-			case "stat":
-				target = &targetStatFault{FS: dst, failures: 1}
-			case "save":
-				store.failSave = true
-			}
-			called := false
-			err := syncer.Sync(context.Background(), src, target, syncer.Option{
-				Mode:       syncer.ModeTwoWay,
-				StateStore: store, OnError: func(ctx context.Context, failure syncer.FileError) (syncer.ErrorPolicy, error) {
-					called = true
-					return syncer.ErrorRetry, nil
-				}})
-			if !errors.Is(err, errSyncTest) || called || len(store.data) != 0 {
-				t.Fatalf("err=%v callback=%v metadata=%s", err, called, store.data)
-			}
-		})
-	}
 }
 
 func TestBiSyncIgnoredCopyRetainsPreviousMetadata(t *testing.T) {

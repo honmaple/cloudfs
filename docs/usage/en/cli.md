@@ -133,12 +133,11 @@ cloudfs --config drivers.json bisync --state ./bisync-state.json name1:/document
 - `--dry-run`: preview operations as `operation source|target path` without changing files or state.
 - `--max-delete N`: limit combined removed entries, including recursive directory contents and type replacements. 0 is unlimited.
 - `--max-delete-percent N`: limit removals separately for each receiving side (0–100; 0 disables). Exceeding either deletion limit stops the run before writes, including dry runs. Ordinary file overwrites do not count as deletions.
-- `--hash-on-change`: requires `--state`; builds an initial hash baseline, then rereads files with changed size/time, missing historical hashes, or unknown metadata. Identical content avoids a copy. Changes preserving size and time can escape detection; `--checksum` takes precedence and computes fresh hashes on demand for content comparison; new files are not pre-read.
-- `--checksum`: read file contents for SHA-256 comparison.
+- `--checksum`: compare file contents by hash. Reuses saved hashes when size and modification time match.
 - `--conflict abort|skip|src|dst|newer|both`: default `abort`; differing files or types conflict. `src/dst` explicitly prefer one side; `skip` preserves conflicts.
 - `--conflict newer`: compare known modification times for two regular files, choosing source on ties; deletion conflicts restore the survivor. A directory or unknown time when both entries exist aborts the run. One-way sync never writes back.
 - `--conflict both`: supported only by `bisync`. File conflicts keep the source at the original path and preserve the target in `.conflict` copies on both sides. Type conflicts keep the directory and preserve the file; deletion conflicts restore the survivor. Dry runs show actual copy destinations.
-- `--state FILE`: local JSON metadata file, atomically replaced using a temporary file with mode `0600`; its parent directory must exist.
+- `--state FILE`: local JSON state file. The parent directory must exist. Updates replace the file atomically with mode `0600`.
 
 State binds the ordered endpoints and a digest of configuration, without storing raw credentials. Changing names, options (including credentials), or directories requires a separate state file. Keep state outside synchronized directories and exclude concurrent commands for the same filesystem pair or state file. The file wraps metadata in a command-specific envelope rather than storing bare `syncer.State`. See the [synchronization guide](syncer.md) for conflicts and partial success behavior.
 

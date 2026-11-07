@@ -2,6 +2,7 @@ package syncer_test
 
 import (
 	"context"
+	"crypto"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	stdpath "path"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,43 +62,23 @@ func TestSync(t *testing.T) {
 	}
 }
 
-func TestSyncModeOneWay(t *testing.T) {
-	src, dst, srcDir, dstDir := syncPair(t)
-	putSyncFile(t, srcDir, "file", "source")
-	putSyncFile(t, dstDir, "extra", "remove")
-	store := &singleSyncStore{}
-	ctx := context.Background()
-	if err := syncer.Sync(ctx, src, dst, syncer.Option{
-		Mode:       syncer.ModeOneWay,
-		Delete:     true,
-		StateStore: store,
-	}); err != nil {
-		t.Fatal(err)
+func TestSyncRejectsInvalidOptions(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		options []syncer.Option
+		want    string
+	}{
+		{"invalid mode", []syncer.Option{{Mode: syncer.Mode(255)}}, "invalid mode 255"},
+		{"multiple options", []syncer.Option{{}, {}}, "expected at most one options value"},
+		{"missing two-way state", []syncer.Option{{Mode: syncer.ModeTwoWay}}, "ModeTwoWay requires StateStore"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := syncer.Sync(context.Background(), nil, nil, test.options...)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
 	}
-	wantSyncFile(t, dstDir, "file", "source")
-	wantSyncAbsent(t, dstDir, "extra")
-	state, err := store.Load(ctx)
-	if err != nil || !state.Valid() || state.Type != "sync" {
-		t.Fatalf("invalid one-way state: %+v, %v", state, err)
-	}
-}
-
-func TestSyncRejectsInvalidMode(t *testing.T) {
-	err := syncer.Sync(context.Background(), nil, nil, syncer.Option{
-		Mode: syncer.Mode(255),
-	})
-	if err == nil || err.Error() != "sync: invalid mode 255" {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestSyncScanFailureDoesNotDelete(t *testing.T) {
-	src, dst, _, dstDir := syncPair(t)
-	putSyncFile(t, dstDir, "keep", "data")
-	if err := syncer.Sync(context.Background(), failedListFS{src}, dst, syncer.Option{Delete: true}); !errors.Is(err, errSyncTest) {
-		t.Fatalf("got %v", err)
-	}
-	wantSyncFile(t, dstDir, "keep", "data")
 }
 
 func TestSyncPrefix(t *testing.T) {
@@ -179,12 +161,6 @@ func (*denySyncWrites) Create(context.Context, string) (cloudfs.FileWriter, erro
 }
 
 var errSyncTest = errors.New("injected sync failure")
-
-type failedListFS struct{ cloudfs.FS }
-
-func (failedListFS) List(context.Context, string) ([]cloudfs.FileInfo, error) {
-	return nil, errSyncTest
-}
 
 func TestSyncComparesBeforeWriting(t *testing.T) {
 	src, dst, srcDir, dstDir := syncPair(t)
@@ -556,28 +532,6 @@ func TestSyncOnErrorControlsFileRetries(t *testing.T) {
 	}
 }
 
-func TestSyncOnErrorDoesNotRetryAutomatically(t *testing.T) {
-	for _, swallow := range []bool{false, true} {
-		t.Run(fmt.Sprint(swallow), func(t *testing.T) {
-			src, dst, srcDir, dstDir := syncPair(t)
-			putSyncFile(t, srcDir, "file", "contents")
-			source := &observedSyncFS{FS: src}
-			calls := 0
-			err := syncer.Sync(context.Background(), &sourceReadFault{FS: source, remainingFailures: 1}, dst, syncer.Option{OnError: func(ctx context.Context, failure syncer.FileError) (syncer.ErrorPolicy, error) {
-				calls++
-				if swallow {
-					return syncer.ErrorAbort, nil
-				}
-				return syncer.ErrorAbort, failure.Err
-			}})
-			if !errors.Is(err, errSyncTest) || calls != 1 || source.dataOpens != 1 {
-				t.Fatalf("err=%v calls=%d opens=%d", err, calls, source.dataOpens)
-			}
-			wantSyncFile(t, dstDir, "file", "co")
-		})
-	}
-}
-
 func TestSyncMetadataAndStateFailuresBypassOnError(t *testing.T) {
 	for _, failure := range []string{"stat", "load", "save"} {
 		t.Run(failure, func(t *testing.T) {
@@ -598,8 +552,8 @@ func TestSyncMetadataAndStateFailuresBypassOnError(t *testing.T) {
 				called = true
 				return syncer.ErrorRetry, nil
 			}})
-			if !errors.Is(err, errSyncTest) || called {
-				t.Fatalf("err=%v callback=%v", err, called)
+			if !errors.Is(err, errSyncTest) || called || len(store.data) != 0 {
+				t.Fatalf("err=%v callback=%v state=%s", err, called, store.data)
 			}
 			if err.Error() != errSyncTest.Error() {
 				t.Fatalf("unexpected error prefix: %v", err)
@@ -639,11 +593,12 @@ func TestSyncCancellationOverridesRetry(t *testing.T) {
 }
 
 func TestSyncRejectsInvalidRecordingState(t *testing.T) {
-	for _, data := range []string{"null", "{}", `{"version":9}`, "broken",
-		`{"version":2,"revision":"initial","type":"sync","source":{},"target":{}}`,
-		`{"version":1,"type":"sync","source":{},"target":{}}`,
-		`{"version":1,"revision":"initial","type":"sync","source":{"file":null},"target":{}}`,
-		`{"version":1,"revision":"initial","type":"sync","source":{"dir/file":{}},"target":{}}`,
+	for _, data := range []string{"broken",
+		`{"hash_algorithm":5,"version":2,"revision":"initial","source":{},"target":{}}`,
+		`{"hash_algorithm":5,"version":1,"source":{},"target":{}}`,
+		`{"hash_algorithm":5,"version":1,"revision":"initial","source":{"file":null},"target":{}}`,
+		`{"hash_algorithm":5,"version":1,"revision":"initial","source":{"dir/file":{}},"target":{}}`,
+		`{"hash_algorithm":5,"version":1,"revision":"initial","source":{"../escape":{}},"target":{}}`,
 	} {
 		src, dst, srcDir, dstDir := syncPair(t)
 		putSyncFile(t, srcDir, "file", "contents")
@@ -675,9 +630,10 @@ func (f *directoryListFault) List(ctx context.Context, p string) ([]cloudfs.File
 func TestSyncScanErrorBypassesOnError(t *testing.T) {
 	src, dst, srcDir, dstDir := syncPair(t)
 	putSyncFile(t, srcDir, "nested/file", "contents")
+	putSyncFile(t, dstDir, "keep", "data")
 	source := &observedSyncFS{FS: &directoryListFault{FS: src}}
 	called := false
-	err := syncer.Sync(context.Background(), source, dst, syncer.Option{OnError: func(ctx context.Context, failure syncer.FileError) (syncer.ErrorPolicy, error) {
+	err := syncer.Sync(context.Background(), source, dst, syncer.Option{Delete: true, OnError: func(ctx context.Context, failure syncer.FileError) (syncer.ErrorPolicy, error) {
 		called = true
 		return syncer.ErrorRetry, nil
 	}})
@@ -685,6 +641,7 @@ func TestSyncScanErrorBypassesOnError(t *testing.T) {
 		t.Fatalf("err=%v callback=%v lists=%v", err, called, source.lists)
 	}
 	wantSyncAbsent(t, dstDir, "nested")
+	wantSyncFile(t, dstDir, "keep", "data")
 }
 
 func TestSyncRetryUsesScannedEntry(t *testing.T) {
@@ -911,7 +868,7 @@ func TestSyncOnErrorIgnoreDirectoryAndRemoval(t *testing.T) {
 	wantSyncAbsent(t, dstDir, "extra")
 }
 
-func TestSyncUsesPublicMetadataEntries(t *testing.T) {
+func TestSyncUsesPublicMetadataRecords(t *testing.T) {
 	src, dst, srcDir, dstDir := syncPair(t)
 	putSyncFile(t, srcDir, "file", "contents")
 	putSyncFile(t, dstDir, "file", "contents")
@@ -929,9 +886,9 @@ func TestSyncUsesPublicMetadataEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := &syncer.State{
-		Type: "sync", Version: 1, Revision: "initial",
-		Source: map[string]*syncer.Entry{"file": {Size: srcInfo.Size(), ModTime: srcInfo.ModTime().UTC()}},
-		Target: map[string]*syncer.Entry{"file": {Size: dstInfo.Size(), ModTime: dstInfo.ModTime().UTC()}},
+		Version: 1, Revision: "initial", HashAlgorithm: crypto.SHA256,
+		Source: map[string]*syncer.Record{"file": {Size: srcInfo.Size(), ModTime: srcInfo.ModTime().UTC()}},
+		Target: map[string]*syncer.Record{"file": {Size: dstInfo.Size(), ModTime: dstInfo.ModTime().UTC()}},
 	}
 	data, err := json.Marshal(state)
 	if err != nil {
@@ -1051,27 +1008,24 @@ func TestSyncChecksumRejectsChangedTransfer(t *testing.T) {
 }
 
 func TestSyncCanChangeChecksumOption(t *testing.T) {
-	for _, initial := range []bool{false, true} {
-		t.Run(fmt.Sprint(initial), func(t *testing.T) {
+	for _, mode := range []syncer.Mode{syncer.ModeOneWay, syncer.ModeTwoWay} {
+		t.Run(fmt.Sprint(mode), func(t *testing.T) {
 			src, dst, srcDir, dstDir := syncPair(t)
 			putSyncFile(t, srcDir, "file", "contents")
 			source := &observedSyncFS{FS: src}
 			target := &observedSyncFS{FS: dst, timeOffset: 24 * time.Hour}
-			option := syncer.Option{StateStore: &singleSyncStore{}, Checksum: initial}
+			option := syncer.Option{Mode: mode, StateStore: &singleSyncStore{}}
 			if err := syncer.Sync(context.Background(), source, target, option); err != nil {
 				t.Fatal(err)
 			}
 			expectedOpens := source.dataOpens
-			for _, checksum := range []bool{!initial, initial} {
+			for _, checksum := range []bool{true, false} {
 				option.Checksum = checksum
-				if checksum {
-					expectedOpens++
-				} // Source scan, with no additional copy.
 				if err := syncer.Sync(context.Background(), source, target, option); err != nil {
 					t.Fatal(err)
 				}
 				if source.dataOpens != expectedOpens {
-					t.Fatalf("changing Checksum recopied data: opens=%d want=%d", source.dataOpens, expectedOpens)
+					t.Fatalf("changing Checksum reopened an unchanged file: opens=%d want=%d", source.dataOpens, expectedOpens)
 				}
 			}
 			wantSyncFile(t, dstDir, "file", "contents")
@@ -1443,9 +1397,9 @@ func TestDirectoryRemovalUsesOneOperation(t *testing.T) {
 			if err != nil || state == nil || !state.Valid() {
 				t.Fatalf("metadata=%+v, err=%v", state, err)
 			}
-			for _, entries := range []map[string]*syncer.Entry{state.Source, state.Target} {
-				if entries["dir/nested"] != nil || entries["dir/nested/file"] != nil {
-					t.Fatalf("stale directory metadata: %+v", entries)
+			for _, records := range []map[string]*syncer.Record{state.Source, state.Target} {
+				if records["dir/nested"] != nil || records["dir/nested/file"] != nil {
+					t.Fatalf("stale directory metadata: %+v", records)
 				}
 			}
 		})

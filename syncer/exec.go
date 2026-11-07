@@ -2,7 +2,6 @@ package syncer
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -56,7 +55,7 @@ func checkDeleteLimits(tasks []syncTask, src, dst *syncTree, maxDelete, maxPerce
 func countDeletedEntries(tree *syncTree, paths []string) int {
 	count := 0
 	for _, path := range paths {
-		tree.walkSubtree(path, func(string, *Entry) error {
+		tree.walkSubtree(path, func(string, *entry) error {
 			count++
 			return nil
 		})
@@ -70,7 +69,7 @@ type (
 		op      Op
 		path    string
 		newPath string
-		entry   *Entry
+		record  *Record
 		replace bool // Remove a type conflict before creating its replacement.
 		// Planning resolves operation dependencies.
 		root    string
@@ -195,7 +194,7 @@ func (e *executor) execute(ctx context.Context, task syncTask) error {
 		return nil
 	}
 	e.notify(&task, StatusStarted, nil)
-	entry, err := e.apply(ctx, &task)
+	targetRecord, err := e.apply(ctx, &task)
 	status := StatusSucceeded
 	if errors.Is(err, errSkipOperation) {
 		status = StatusSkipped
@@ -209,11 +208,11 @@ func (e *executor) execute(ctx context.Context, task syncTask) error {
 			srcState, dstState = e.state.Target, e.state.Source
 		}
 		if task.op == OpRename {
-			dstState[task.newPath] = entry
+			dstState[task.newPath] = targetRecord
 			delete(dstState, task.path)
-		} else if entry != nil {
-			srcState[task.path] = task.entry.withHash(entry.Hash)
-			dstState[task.path] = entry
+		} else if targetRecord != nil {
+			srcState[task.path] = task.record.withHash(targetRecord.Hash)
+			dstState[task.path] = targetRecord
 		} else {
 			delete(dstState, task.path)
 			if !task.replace {
@@ -222,10 +221,10 @@ func (e *executor) execute(ctx context.Context, task syncTask) error {
 			if task.op == OpRmdir {
 				// The sending side is absent or a replacement file, so neither
 				// side can retain confirmed descendants of the removed directory.
-				for _, entries := range []map[string]*Entry{srcState, dstState} {
-					for path := range entries {
+				for _, records := range []map[string]*Record{srcState, dstState} {
+					for path := range records {
 						if strings.HasPrefix(path, task.path+"/") {
-							delete(entries, path)
+							delete(records, path)
 						}
 					}
 				}
@@ -235,7 +234,7 @@ func (e *executor) execute(ctx context.Context, task syncTask) error {
 	}
 	e.notify(&task, status, err)
 	if err == nil && task.op == OpRename {
-		*task.entry = *entry
+		*task.record = *targetRecord
 	}
 	if errors.Is(err, errSkipOperation) {
 		e.mu.Lock()
@@ -250,9 +249,9 @@ func (e *executor) execute(ctx context.Context, task syncTask) error {
 	return err
 }
 
-// apply performs one task and returns the confirmed target entry.
+// apply performs one task and returns the confirmed target record.
 // A successful removal returns nil; execute records the result.
-func (e *executor) apply(ctx context.Context, task *syncTask) (*Entry, error) {
+func (e *executor) apply(ctx context.Context, task *syncTask) (*Record, error) {
 	dstFS := e.dstFS
 	if task.reverse {
 		dstFS = e.srcFS
@@ -271,13 +270,13 @@ func (e *executor) apply(ctx context.Context, task *syncTask) (*Entry, error) {
 		if err != nil {
 			return nil, err
 		}
-		if info.IsDir() || (task.entry.Size >= 0 && info.Size() >= 0 && info.Size() != task.entry.Size) {
+		if info.IsDir() || (task.record.Size >= 0 && info.Size() >= 0 && info.Size() != task.record.Size) {
 			return nil, fmt.Errorf("%w: invalid transfer result for %s", ErrSyncConflict, task.path)
 		}
-		return &Entry{Size: info.Size(), ModTime: info.ModTime().UTC(), Hash: copiedHash}, nil
+		return &Record{Size: info.Size(), ModTime: info.ModTime().UTC(), Hash: copiedHash}, nil
 	case OpRename:
 		if err := e.handleError(ctx, task, func(ctx context.Context) error {
-			if err := dstFS.checkFileSnapshot(ctx, task.path, task.entry); err != nil {
+			if err := dstFS.checkFileSnapshot(ctx, task.path, task.record); err != nil {
 				return err
 			}
 			return dstFS.Rename(ctx, task.path, stdpath.Base(task.newPath))
@@ -288,14 +287,14 @@ func (e *executor) apply(ctx context.Context, task *syncTask) (*Entry, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &Entry{Size: info.Size(), ModTime: info.ModTime().UTC(), Hash: task.entry.Hash}, nil
+		return &Record{Size: info.Size(), ModTime: info.ModTime().UTC(), Hash: task.record.Hash}, nil
 	case OpMkdir:
 		if err := e.handleError(ctx, task, func(ctx context.Context) error {
 			return dstFS.MakeDir(ctx, task.path)
 		}); err != nil {
 			return nil, err
 		}
-		return &Entry{IsDir: true}, nil
+		return &Record{IsDir: true}, nil
 	case OpRemove, OpRmdir:
 		if err := e.handleError(ctx, task, func(ctx context.Context) error {
 			return dstFS.Remove(ctx, task.path)
@@ -313,7 +312,7 @@ func (e *executor) copy(ctx context.Context, task *syncTask) (string, error) {
 	if task.reverse {
 		srcFS, dstFS = e.dstFS, e.srcFS
 	}
-	if err := srcFS.checkFileSnapshot(ctx, task.path, task.entry); err != nil {
+	if err := srcFS.checkFileSnapshot(ctx, task.path, task.record); err != nil {
 		return "", err
 	}
 	reader, err := srcFS.Open(ctx, task.path)
@@ -332,7 +331,7 @@ func (e *executor) copy(ctx context.Context, task *syncTask) (string, error) {
 	var progress func(int64)
 	if e.option.OnEvent != nil {
 		event := ProgressEvent{
-			FileInfo: task.entry.FileInfo(task.path),
+			FileInfo: task.record.FileInfo(task.path),
 			Reverse:  task.reverse,
 		}
 		progress = func(written int64) {
@@ -341,7 +340,7 @@ func (e *executor) copy(ctx context.Context, task *syncTask) (string, error) {
 		}
 	}
 
-	hasher := sha256.New()
+	hasher := srcFS.algorithm.New()
 	n, copyErr := ioutil.Copy(ctx, io.MultiWriter(writer, hasher), reader, progress)
 	// Finalize both streams before confirming the transfer, including on failure.
 	err = errors.Join(copyErr, writer.Close(), reader.Close())
@@ -349,11 +348,11 @@ func (e *executor) copy(ctx context.Context, task *syncTask) (string, error) {
 		return "", err
 	}
 	sum := hex.EncodeToString(hasher.Sum(nil))
-	err = errors.Join(err, srcFS.checkFileSnapshot(ctx, task.path, task.entry))
-	if task.entry.Size >= 0 && n != task.entry.Size {
+	err = errors.Join(err, srcFS.checkFileSnapshot(ctx, task.path, task.record))
+	if task.record.Size >= 0 && n != task.record.Size {
 		err = errors.Join(err, io.ErrUnexpectedEOF)
 	}
-	if task.entry.Hash != "" && task.entry.Hash != sum && !errors.Is(err, ErrSourceChanged) {
+	if task.record.Hash != "" && task.record.Hash != sum && !errors.Is(err, ErrSourceChanged) {
 		err = errors.Join(err, ErrSourceChanged)
 	}
 	if err != nil {
@@ -370,7 +369,7 @@ func (e *executor) notify(task *syncTask, status Status, err error) {
 		err = nil
 	}
 	e.option.OnEvent(SyncEvent{
-		FileInfo: task.entry.FileInfo(task.path),
+		FileInfo: task.record.FileInfo(task.path),
 		Op:       task.op,
 		Status:   status,
 		Reverse:  task.reverse,
@@ -389,7 +388,7 @@ func (e *executor) handleError(ctx context.Context, task *syncTask, fn func(cont
 			return err
 		}
 		failure := FileError{
-			FileInfo: task.entry.FileInfo(task.path),
+			FileInfo: task.record.FileInfo(task.path),
 			Op:       task.op,
 			Reverse:  task.reverse,
 			NewPath:  task.newPath,

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"crypto"
 	stdpath "path"
 	"strings"
 
@@ -73,6 +74,20 @@ func (d *predicateFS) Stat(ctx context.Context, path string) (cloudfs.FileInfo, 
 
 func (d *predicateFS) Open(ctx context.Context, path string) (cloudfs.File, error) {
 	return d.FS.Open(ctx, d.getActualPath(path))
+}
+
+func (d *predicateFS) Hashes() []crypto.Hash {
+	if hasher, ok := d.FS.(cloudfs.Hasher); ok {
+		return hasher.Hashes()
+	}
+	return nil
+}
+
+func (d *predicateFS) Hash(ctx context.Context, path string, algorithm crypto.Hash) (string, error) {
+	if hasher, ok := d.FS.(cloudfs.Hasher); ok {
+		return hasher.Hash(ctx, d.getActualPath(path), algorithm)
+	}
+	return "", cloudfs.ErrNotSupport
 }
 
 func (d *predicateFS) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {

@@ -3,8 +3,10 @@ package syncer
 import (
 	"bytes"
 	"context"
+	"crypto"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"maps"
 	"os"
@@ -13,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/honmaple/cloudfs"
 	"github.com/honmaple/cloudfs/driver/local"
 )
 
@@ -23,6 +26,9 @@ func TestSyncPreservesSnapshotsDuringExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(srcDir, "file"), []byte("source"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dstDir, "file"), []byte("old target"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dstDir, "extra"), []byte("remove"), 0600); err != nil {
@@ -39,18 +45,18 @@ func TestSyncPreservesSnapshotsDuringExecution(t *testing.T) {
 	store := &snapshotStore{}
 	worker := &syncer{
 		state: &State{
-			Type:    "sync",
-			Version: 1,
-			Source:  make(map[string]*Entry),
-			Target:  make(map[string]*Entry),
+			HashAlgorithm: crypto.SHA256,
+			Version:       1,
+			Source:        make(map[string]*Record),
+			Target:        make(map[string]*Record),
 		},
-		srcFS: &syncFS{FS: src}, dstFS: &syncFS{FS: dst},
-		option: Option{Delete: true, StateStore: store},
+		srcFS: &syncFS{algorithm: crypto.SHA256, FS: src}, dstFS: &syncFS{algorithm: crypto.SHA256, FS: dst},
+		option: Option{Delete: true, StateStore: store, OnConflict: PreferSrc()},
 	}
 	if err := worker.init(ctx); err != nil {
 		t.Fatal(err)
 	}
-	worker.srcTree, err = worker.srcFS.scan(ctx)
+	worker.srcTree, err = worker.srcFS.scan(ctx, worker.state.Source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,16 +66,23 @@ func TestSyncPreservesSnapshotsDuringExecution(t *testing.T) {
 	if worker.srcTree.get("/file") == worker.srcTree.get("/other") {
 		t.Fatal("different paths share the same scanned entry")
 	}
-	worker.dstTree, err = worker.dstFS.scan(ctx)
+	worker.dstTree, err = worker.dstFS.scan(ctx, worker.state.Target)
 	if err != nil {
 		t.Fatal(err)
 	}
 	snapshots := func() []byte {
 		t.Helper()
+		source, target := make(map[string]*Record), make(map[string]*Record)
+		for path, info := range worker.srcTree.entries {
+			source[path] = info.toRecord()
+		}
+		for path, info := range worker.dstTree.entries {
+			target[path] = info.toRecord()
+		}
 		data, err := json.Marshal(struct {
-			Source, Target map[string]*Entry
+			Source, Target map[string]*Record
 			State          *State
-		}{worker.srcTree.entries, worker.dstTree.entries, worker.state})
+		}{source, target, worker.state})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -81,10 +94,10 @@ func TestSyncPreservesSnapshotsDuringExecution(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := &State{
-		Type:    worker.state.Type,
-		Version: worker.state.Version,
-		Source:  maps.Clone(worker.state.Source),
-		Target:  maps.Clone(worker.state.Target),
+		HashAlgorithm: worker.state.HashAlgorithm,
+		Version:       worker.state.Version,
+		Source:        maps.Clone(worker.state.Source),
+		Target:        maps.Clone(worker.state.Target),
 	}
 	exec := &executor{
 		srcFS:   worker.srcFS,
@@ -111,14 +124,17 @@ func TestSyncPreservesSnapshotsDuringExecution(t *testing.T) {
 	if saved == nil || !saved.Valid() {
 		t.Fatal("saved metadata must have valid relative paths")
 	}
-	if saved.Source["file"] == worker.srcTree.get("/file") || worker.srcTree.get("/file").Hash != "" {
+	if worker.srcTree.get("/file").hash != "" {
 		t.Fatal("recording the transfer hash modified the scanned entry")
 	}
 	if saved.Source["file"].Hash == "" || saved.Source["file"].Hash != saved.Target["file"].Hash {
 		t.Fatal("transfer hash was not confirmed on both sides")
 	}
+	if saved.Target["file"].Size != int64(len("source")) {
+		t.Fatal("the scan replaced the confirmed target record")
+	}
 	if saved.Target["file"] == saved.Source["file"] {
-		t.Fatal("transfer result reused the source entry")
+		t.Fatal("transfer result reused the source record")
 	}
 	if _, exists := saved.Target["file"]; !exists {
 		t.Fatal("new metadata omitted the copied file")
@@ -140,7 +156,7 @@ func (store *snapshotStore) Save(_ context.Context, state *State) error {
 	return nil
 }
 
-func TestEntryEqualityUsesAvailableHashes(t *testing.T) {
+func TestRecordEqualityUsesAvailableHashes(t *testing.T) {
 	timestamp := time.Unix(1700000000, 0)
 	for _, test := range []struct {
 		name                   string
@@ -158,8 +174,8 @@ func TestEntryEqualityUsesAvailableHashes(t *testing.T) {
 		{"target hash with changed time", "", "hash-b", 3, timestamp.Add(time.Hour), false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			source := &Entry{Size: 3, ModTime: timestamp, Hash: test.sourceHash}
-			target := &Entry{Size: test.targetSize, ModTime: test.targetTime, Hash: test.targetHash}
+			source := &Record{Size: 3, ModTime: timestamp, Hash: test.sourceHash}
+			target := &Record{Size: test.targetSize, ModTime: test.targetTime, Hash: test.targetHash}
 			if equal := source.Equal(target); equal != test.equal {
 				t.Fatalf("equal=%v want=%v", equal, test.equal)
 			}
@@ -168,7 +184,7 @@ func TestEntryEqualityUsesAvailableHashes(t *testing.T) {
 }
 
 func TestSyncTreeWalkSubtree(t *testing.T) {
-	tree := newSyncTree(map[string]*Entry{
+	tree := stateTree(map[string]*Record{
 		"/a": {IsDir: true}, "/a/file": {Size: 1},
 		"/a/nested": {IsDir: true}, "/a/nested/file": {Size: 2},
 		"/a-b": {IsDir: true}, "/a-b/file": {Size: 3},
@@ -190,11 +206,11 @@ func TestSyncTreeWalkSubtree(t *testing.T) {
 		t.Run(test.path, func(t *testing.T) {
 			walk := tree.walk
 			if test.path != "" {
-				walk = func(fn func(string, *Entry) error) error { return tree.walkSubtree(test.path, fn) }
+				walk = func(fn func(string, *entry) error) error { return tree.walkSubtree(test.path, fn) }
 			}
 			var got []string
-			if err := walk(func(path string, entry *Entry) error {
-				if entry != tree.get(path) {
+			if err := walk(func(path string, visited *entry) error {
+				if visited != tree.get(path) {
 					t.Fatal("traversal did not retain the scanned entry")
 				}
 				got = append(got, path)
@@ -204,7 +220,7 @@ func TestSyncTreeWalkSubtree(t *testing.T) {
 			}
 			for _, stopErr := range []error{fs.SkipAll, errors.New("stop walk")} {
 				got = nil
-				err := walk(func(path string, _ *Entry) error {
+				err := walk(func(path string, _ *entry) error {
 					got = append(got, path)
 					return stopErr
 				})
@@ -222,7 +238,7 @@ func TestSyncTreeWalkSubtree(t *testing.T) {
 			}
 		})
 	}
-	if err := newSyncTree(nil).walk(func(path string, _ *Entry) error {
+	if err := stateTree(nil).walk(func(path string, _ *entry) error {
 		t.Fatalf("empty snapshot visited %q", path)
 		return nil
 	}); err != nil {
@@ -230,37 +246,8 @@ func TestSyncTreeWalkSubtree(t *testing.T) {
 	}
 }
 
-func TestSyncTreeWalkExcludesSkipped(t *testing.T) {
-	tree := newSyncTree(map[string]*Entry{
-		"/included": {},
-	})
-	tree.skipped = map[string]bool{"/excluded-dir": true, "/excluded-file": true}
-	for _, root := range []string{"", "/excluded-dir", "/excluded-file"} {
-		t.Run(root, func(t *testing.T) {
-			var paths []string
-			visit := func(path string, _ *Entry) error {
-				paths = append(paths, path)
-				return nil
-			}
-			var err error
-			if root == "" {
-				err = tree.walk(visit)
-			} else {
-				err = tree.walkSubtree(root, visit)
-			}
-			var want []string
-			if root == "" {
-				want = []string{"/included"}
-			}
-			if err != nil || !slices.Equal(paths, want) {
-				t.Fatalf("paths=%v want=%v err=%v", paths, want, err)
-			}
-		})
-	}
-}
-
 func TestSyncTreeWalkSkipDir(t *testing.T) {
-	tree := newSyncTree(map[string]*Entry{
+	tree := stateTree(map[string]*Record{
 		"/a": {IsDir: true}, "/a/child": {IsDir: true}, "/a/child/file": {},
 		"/a/child-neighbor": {}, "/a/z": {},
 		"/a-b": {IsDir: true}, "/a-b/file": {}, "/a.b": {}, "/b": {},
@@ -282,7 +269,7 @@ func TestSyncTreeWalkSkipDir(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var got []string
-			fn := func(path string, _ *Entry) error {
+			fn := func(path string, _ *entry) error {
 				got = append(got, path)
 				if test.skip[path] {
 					return fs.SkipDir
@@ -302,23 +289,22 @@ func TestSyncTreeWalkSkipDir(t *testing.T) {
 	}
 }
 
-func TestSyncEntryChanges(t *testing.T) {
-	worker := &syncer{}
+func TestEntryChangesFromPreviousRecord(t *testing.T) {
 	for _, test := range []struct {
 		name      string
-		cur, prev *Entry
+		cur, prev *Record
 		changed   bool
 	}{
-		{"both absent", nil, nil, false},
-		{"added", &Entry{}, nil, true},
-		{"deleted", nil, &Entry{}, true},
-		{"unchanged file", &Entry{Size: 1}, &Entry{Size: 1}, false},
-		{"changed file", &Entry{Size: 2}, &Entry{Size: 1}, true},
-		{"unchanged directory", &Entry{IsDir: true}, &Entry{IsDir: true}, false},
-		{"type changed", &Entry{IsDir: true}, &Entry{}, true},
+		{"added", &Record{}, nil, true},
+		{"unchanged file", &Record{Size: 1}, &Record{Size: 1}, false},
+		{"changed file", &Record{Size: 2}, &Record{Size: 1}, true},
+		{"unchanged directory", &Record{IsDir: true}, &Record{IsDir: true}, false},
+		{"type changed", &Record{IsDir: true}, &Record{}, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := worker.isChanged(test.cur, test.prev); got != test.changed {
+			current := test.cur.entry("/file")
+			current.record = test.prev
+			if got := current.isChanged(); got != test.changed {
 				t.Fatalf("changed=%v want=%v", got, test.changed)
 			}
 		})
@@ -377,6 +363,200 @@ func TestSyncPreservesLoadedMetadata(t *testing.T) {
 			run()
 			if store.state != confirmed {
 				t.Fatal("unchanged metadata was saved again")
+			}
+		})
+	}
+}
+
+type pipelineFS struct {
+	cloudfs.FS
+	t        *testing.T
+	planning bool
+	reads    int
+	writes   int
+}
+
+func (fsys *pipelineFS) Open(ctx context.Context, path string) (cloudfs.File, error) {
+	if !fsys.planning {
+		fsys.t.Fatal("scan opened file contents")
+	}
+	fsys.reads++
+	return fsys.FS.Open(ctx, path)
+}
+
+func (fsys *pipelineFS) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
+	fsys.writes++
+	return fsys.FS.Create(ctx, path)
+}
+
+func TestSyncPipelinePlansConcreteEndpoints(t *testing.T) {
+	ctx := context.Background()
+	var roots [2]string
+	var filesystems [2]*syncFS
+	var trees [2]*syncTree
+	var observed [2]*pipelineFS
+	for side := range roots {
+		roots[side] = t.TempDir()
+		fsys, err := local.New(&local.Option{Path: roots[side]})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer fsys.Close()
+		observed[side] = &pipelineFS{FS: fsys, t: t}
+		filesystems[side] = &syncFS{algorithm: crypto.SHA256, FS: observed[side]}
+	}
+	if err := os.WriteFile(filepath.Join(roots[0], "file"), []byte("source"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for side := range filesystems {
+		var err error
+		trees[side], err = filesystems[side].scan(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		observed[side].planning = true
+	}
+	worker := &syncer{
+		srcFS:   filesystems[0],
+		dstFS:   filesystems[1],
+		srcTree: trees[0],
+		dstTree: trees[1],
+		state:   &State{Source: make(map[string]*Record), Target: make(map[string]*Record)},
+		option:  Option{Checksum: true},
+	}
+	tasks, err := worker.oneWayTasks(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for side, fsys := range observed {
+		if fsys.writes != 0 || fsys.reads != 0 {
+			t.Fatal("new file planning performed I/O")
+		}
+		if scanned := trees[side].entries["/file"]; scanned != nil && (scanned.hash != "" || trees[side].get("/file") != scanned) {
+			t.Fatal("planning changed the scanned entry")
+		}
+	}
+	if len(tasks) != 1 || tasks[0].op != OpCopy || tasks[0].path != "/file" {
+		t.Fatal("unexpected copy plan")
+	}
+	exec := &executor{
+		srcFS: filesystems[0],
+		dstFS: filesystems[1],
+		option: Option{
+			Concurrency: 2,
+		},
+		state: &State{
+			Source: make(map[string]*Record),
+			Target: make(map[string]*Record),
+		},
+	}
+	if err := exec.run(ctx, tasks); err != nil {
+		t.Fatal(err)
+	}
+	if observed[0].reads+observed[1].reads != 1 {
+		t.Fatal("new file was read more than once for transfer")
+	}
+	for _, root := range roots {
+		data, err := os.ReadFile(filepath.Join(root, "file"))
+		if err != nil || string(data) != "source" {
+			t.Fatalf("unexpected final content: %q, %v", data, err)
+		}
+	}
+}
+
+func TestScanExcludesFilteredPaths(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "excluded"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"file", "excluded/child", "excluded-file"} {
+		if err := os.WriteFile(filepath.Join(root, path), []byte("data"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	backend, err := local.New(&local.Option{Path: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	observed := &pipelineFS{FS: backend, t: t}
+	fsys := &syncFS{
+		algorithm: crypto.SHA256,
+		FS:        observed,
+		option: Option{Skipper: func(info FileInfo) bool {
+			return info.Path() == "/excluded" || info.Path() == "/excluded-file"
+		}},
+	}
+	tree, err := fsys.scan(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tree.entries) != 1 || !tree.skipped["/excluded"] || !tree.skipped["/excluded-file"] || tree.get("/file").hash != "" {
+		t.Fatalf("unexpected scan result: %+v", tree)
+	}
+	if observed.writes != 0 || observed.reads != 0 {
+		t.Fatal("scan read contents or wrote files")
+	}
+}
+
+func TestEntryHashIsLazyAndCached(t *testing.T) {
+	for _, reuse := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reuse=%t", reuse), func(t *testing.T) {
+			root := t.TempDir()
+			if err := os.WriteFile(filepath.Join(root, "file"), []byte("data"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			backend, err := local.New(&local.Option{Path: root})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer backend.Close()
+			observed := &pipelineFS{FS: backend, t: t}
+			fsys := &syncFS{
+				FS:        observed,
+				algorithm: crypto.SHA256,
+			}
+			ctx := context.Background()
+			hash := crypto.SHA256.New()
+			hash.Write([]byte("data"))
+			want := fmt.Sprintf("%x", hash.Sum(nil))
+			var records map[string]*Record
+			if reuse {
+				info, err := backend.Stat(ctx, "/file")
+				if err != nil {
+					t.Fatal(err)
+				}
+				records = map[string]*Record{
+					"/file": {Size: info.Size(), ModTime: info.ModTime().UTC(), Hash: want},
+				}
+			}
+			tree, err := fsys.scan(ctx, records)
+			if err != nil {
+				t.Fatal(err)
+			}
+			scanned := tree.get("/file")
+			snapshot := scanned.FileInfo()
+			if snapshot.Hash() != "" || observed.reads != 0 {
+				t.Fatal("scan or snapshot capture fetched a hash")
+			}
+			observed.planning = true
+			for range 2 {
+				if err := scanned.loadHash(ctx); err != nil {
+					t.Fatal(err)
+				}
+				if got := scanned.Hash(); got != want {
+					t.Fatalf("hash=%q, want %q", got, want)
+				}
+			}
+			wantReads := 1
+			if reuse {
+				wantReads = 0
+			}
+			if observed.reads != wantReads {
+				t.Fatalf("reads=%d, want %d", observed.reads, wantReads)
+			}
+			if snapshot.Hash() != "" || scanned.toRecord().Hash != want || reuse && records["/file"].Hash != want {
+				t.Fatal("lazy hashing changed a retained snapshot or lost the cached hash")
 			}
 		})
 	}
