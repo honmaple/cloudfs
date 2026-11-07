@@ -107,6 +107,7 @@ func (e *entry) FileInfo() FileInfo {
 		return nil
 	}
 	snapshot := *e
+	snapshot.path = "/" + e.path
 	snapshot.fsys, snapshot.record = nil, nil
 	return &snapshot
 }
@@ -128,10 +129,35 @@ func (e *entry) Equal(other *entry) bool {
 	return e.size == other.size && e.modTime.Equal(other.modTime)
 }
 
+// syncFS adapts relative sync paths to driver paths rooted at /.
 type syncFS struct {
-	cloudfs.FS
+	FS        cloudfs.FS
 	option    Option
 	algorithm crypto.Hash
+}
+
+func (fsys *syncFS) Stat(ctx context.Context, path string) (cloudfs.FileInfo, error) {
+	return fsys.FS.Stat(ctx, "/"+path)
+}
+
+func (fsys *syncFS) Open(ctx context.Context, path string) (cloudfs.File, error) {
+	return fsys.FS.Open(ctx, "/"+path)
+}
+
+func (fsys *syncFS) Create(ctx context.Context, path string) (cloudfs.FileWriter, error) {
+	return fsys.FS.Create(ctx, "/"+path)
+}
+
+func (fsys *syncFS) MakeDir(ctx context.Context, path string) error {
+	return fsys.FS.MakeDir(ctx, "/"+path)
+}
+
+func (fsys *syncFS) Remove(ctx context.Context, path string) error {
+	return fsys.FS.Remove(ctx, "/"+path)
+}
+
+func (fsys *syncFS) Rename(ctx context.Context, path, name string) error {
+	return fsys.FS.Rename(ctx, "/"+path, name)
 }
 
 func (fsys *syncFS) scan(ctx context.Context, records map[string]*Record) (*syncTree, error) {
@@ -143,7 +169,7 @@ func (fsys *syncFS) scan(ctx context.Context, records map[string]*Record) (*sync
 
 	entries := make(map[string]*entry)
 	skipped := make(map[string]bool)
-	if err := cloudfs.WalkDir(ctx, fsys, root, func(path string, info cloudfs.FileInfo, walkErr error) error {
+	if err := cloudfs.WalkDir(ctx, fsys.FS, root, func(path string, info cloudfs.FileInfo, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -160,13 +186,14 @@ func (fsys *syncFS) scan(ctx context.Context, records map[string]*Record) (*sync
 		if entryName == "" || entryName == "." || entryName == ".." || strings.Contains(entryName, "/") {
 			return fmt.Errorf("sync: invalid entry name %q", entryName)
 		}
-		if !fs.ValidPath(strings.TrimPrefix(path, "/")) {
+		relative := strings.TrimPrefix(path, "/")
+		if !fs.ValidPath(relative) {
 			return fmt.Errorf("sync: invalid path %q", path)
 		}
-		if entries[path] != nil || skipped[path] {
+		if entries[relative] != nil || skipped[relative] {
 			return fmt.Errorf("sync: duplicate path %s", path)
 		}
-		e := &entry{path: path, isDir: info.IsDir(), fsys: fsys, record: records[path]}
+		e := &entry{path: relative, isDir: info.IsDir(), fsys: fsys, record: records[relative]}
 		if !e.isDir {
 			e.size, e.modTime = info.Size(), info.ModTime().UTC()
 		}
@@ -176,14 +203,14 @@ func (fsys *syncFS) scan(ctx context.Context, records map[string]*Record) (*sync
 				return err
 			}
 			if skip {
-				skipped[path] = true
+				skipped[relative] = true
 				if info.IsDir() {
 					return fs.SkipDir
 				}
 				return nil
 			}
 		}
-		entries[path] = e
+		entries[relative] = e
 		return nil
 	}); err != nil {
 		return nil, err
@@ -213,7 +240,7 @@ func (fsys *syncFS) checkFileSnapshot(ctx context.Context, path string, record *
 // Hash prefers a backend digest and falls back to reading the file.
 func (fsys *syncFS) Hash(ctx context.Context, path string, algorithm crypto.Hash) (string, error) {
 	if hasher, ok := fsys.FS.(cloudfs.Hasher); ok {
-		hash, err := hasher.Hash(ctx, path, algorithm)
+		hash, err := hasher.Hash(ctx, "/"+path, algorithm)
 		if err != nil && !errors.Is(err, cloudfs.ErrNotSupport) {
 			return "", err
 		}
@@ -282,7 +309,7 @@ func (tree *syncTree) get(path string) *entry {
 // SkipDir skips directory descendants; on a file it skips remaining siblings.
 // SkipAll stops traversal successfully. Other errors are returned to the caller.
 func (tree *syncTree) walk(fn func(string, *entry) error) error {
-	err := tree.walkPaths(tree.children["/"], fn)
+	err := tree.walkPaths(tree.children["."], fn)
 	if err == fs.SkipDir || err == fs.SkipAll {
 		return nil
 	}

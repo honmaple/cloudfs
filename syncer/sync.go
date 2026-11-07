@@ -169,7 +169,7 @@ func (s *syncer) init(ctx context.Context) error {
 	if !loaded.Valid() {
 		return fmt.Errorf("%w: incompatible synchronization state", ErrSyncState)
 	}
-	s.state = loaded.withPathPrefix("/")
+	s.state = loaded
 	s.srcFS.algorithm, s.dstFS.algorithm = loaded.HashAlgorithm, loaded.HashAlgorithm
 	return nil
 }
@@ -236,7 +236,7 @@ func (s *syncer) finish(ctx context.Context, state *State) error {
 	if reflect.DeepEqual(prevState.Source, state.Source) && reflect.DeepEqual(prevState.Target, state.Target) {
 		return nil
 	}
-	return state.withPathPrefix("").save(ctx, s.option.StateStore)
+	return state.save(ctx, s.option.StateStore)
 }
 
 func (s *syncer) run(ctx context.Context) error {
@@ -351,9 +351,9 @@ func (s *syncer) oneWayTasks(ctx context.Context) ([]syncTask, error) {
 			return nil
 		default:
 			if dst != nil && src.IsDir() != dst.IsDir() {
-				return fmt.Errorf("%w: %s: file/directory mismatch", ErrSyncConflict, path)
+				return fmt.Errorf("%w: /%s: file/directory mismatch", ErrSyncConflict, path)
 			}
-			return fmt.Errorf("%w: %s", ErrSyncConflict, path)
+			return fmt.Errorf("%w: /%s", ErrSyncConflict, path)
 		}
 		if dst != nil && src.IsDir() != dst.IsDir() {
 			op := OpRemove
@@ -585,9 +585,9 @@ func (s *syncer) twoWayTasks(ctx context.Context) ([]syncTask, error) {
 				}
 				return nil
 			case ConflictAbort:
-				return fmt.Errorf("%w: %s", ErrSyncConflict, path)
+				return fmt.Errorf("%w: /%s", ErrSyncConflict, path)
 			default:
-				return fmt.Errorf("sync: invalid conflict policy %d for %s", policy, path)
+				return fmt.Errorf("sync: invalid conflict policy %d for /%s", policy, path)
 			}
 
 			if dst != nil && (src == nil || src.IsDir() != dst.IsDir()) {
@@ -662,7 +662,7 @@ func (s *syncer) keepBothTasks(path string, src, dst *entry, taken map[string]bo
 		backupEntry := *file
 		backupEntry.path, backupEntry.hash = backup, ""
 		if s.option.Skipper(backupEntry.FileInfo()) {
-			return nil, ConflictAbort, fmt.Errorf("%w: conflict copy is filtered: %s", ErrSyncConflict, backup)
+			return nil, ConflictAbort, fmt.Errorf("%w: conflict copy is filtered: /%s", ErrSyncConflict, backup)
 		}
 	}
 	// These tasks share an owned snapshot, updated after the rename succeeds.
@@ -723,8 +723,8 @@ func (s *syncer) handleConflict(ctx context.Context, path string, src, dst *entr
 	conflict := Conflict{
 		Source:      src.FileInfo(),
 		Target:      dst.FileInfo(),
-		SourceState: s.state.Source[path].FileInfo(path),
-		TargetState: s.state.Target[path].FileInfo(path),
+		SourceState: s.state.Source[path].FileInfo("/" + path),
+		TargetState: s.state.Target[path].FileInfo("/" + path),
 	}
 	return s.option.OnConflict(ctx, conflict)
 }

@@ -60,10 +60,10 @@ func TestSyncPreservesSnapshotsDuringExecution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if worker.srcTree.get("/missing") != nil {
+	if worker.srcTree.get("missing") != nil {
 		t.Fatal("missing path returned an entry")
 	}
-	if worker.srcTree.get("/file") == worker.srcTree.get("/other") {
+	if worker.srcTree.get("file") == worker.srcTree.get("other") {
 		t.Fatal("different paths share the same scanned entry")
 	}
 	worker.dstTree, err = worker.dstFS.scan(ctx, worker.state.Target)
@@ -124,7 +124,7 @@ func TestSyncPreservesSnapshotsDuringExecution(t *testing.T) {
 	if saved == nil || !saved.Valid() {
 		t.Fatal("saved metadata must have valid relative paths")
 	}
-	if worker.srcTree.get("/file").hash != "" {
+	if worker.srcTree.get("file").hash != "" {
 		t.Fatal("recording the transfer hash modified the scanned entry")
 	}
 	if saved.Source["file"].Hash == "" || saved.Source["file"].Hash != saved.Target["file"].Hash {
@@ -185,23 +185,23 @@ func TestRecordEqualityUsesAvailableHashes(t *testing.T) {
 
 func TestSyncTreeWalkSubtree(t *testing.T) {
 	tree := stateTree(map[string]*Record{
-		"/a": {IsDir: true}, "/a/file": {Size: 1},
-		"/a/nested": {IsDir: true}, "/a/nested/file": {Size: 2},
-		"/a-b": {IsDir: true}, "/a-b/file": {Size: 3},
-		"/a.b": {Size: 4}, "/a0": {Size: 5}, "/aa": {Size: 6},
-		"/目录": {IsDir: true}, "/目录/文件": {Size: 7}, "/目录-旁支": {Size: 8},
+		"a": {IsDir: true}, "a/file": {Size: 1},
+		"a/nested": {IsDir: true}, "a/nested/file": {Size: 2},
+		"a-b": {IsDir: true}, "a-b/file": {Size: 3},
+		"a.b": {Size: 4}, "a0": {Size: 5}, "aa": {Size: 6},
+		"目录": {IsDir: true}, "目录/文件": {Size: 7}, "目录-旁支": {Size: 8},
 	})
 	for _, test := range []struct {
 		path string
 		want []string
 	}{
-		{"", []string{"/a", "/a/file", "/a/nested", "/a/nested/file", "/a-b", "/a-b/file", "/a.b", "/a0", "/aa", "/目录", "/目录/文件", "/目录-旁支"}},
-		{"/a", []string{"/a", "/a/file", "/a/nested", "/a/nested/file"}},
-		{"/a/nested", []string{"/a/nested", "/a/nested/file"}},
-		{"/a/file", []string{"/a/file"}},
-		{"/a/n", nil},
-		{"/missing", nil},
-		{"/目录", []string{"/目录", "/目录/文件"}},
+		{"", []string{"a", "a/file", "a/nested", "a/nested/file", "a-b", "a-b/file", "a.b", "a0", "aa", "目录", "目录/文件", "目录-旁支"}},
+		{"a", []string{"a", "a/file", "a/nested", "a/nested/file"}},
+		{"a/nested", []string{"a/nested", "a/nested/file"}},
+		{"a/file", []string{"a/file"}},
+		{"a/n", nil},
+		{"missing", nil},
+		{"目录", []string{"目录", "目录/文件"}},
 	} {
 		t.Run(test.path, func(t *testing.T) {
 			walk := tree.walk
@@ -248,24 +248,24 @@ func TestSyncTreeWalkSubtree(t *testing.T) {
 
 func TestSyncTreeWalkSkipDir(t *testing.T) {
 	tree := stateTree(map[string]*Record{
-		"/a": {IsDir: true}, "/a/child": {IsDir: true}, "/a/child/file": {},
-		"/a/child-neighbor": {}, "/a/z": {},
-		"/a-b": {IsDir: true}, "/a-b/file": {}, "/a.b": {}, "/b": {},
+		"a": {IsDir: true}, "a/child": {IsDir: true}, "a/child/file": {},
+		"a/child-neighbor": {}, "a/z": {},
+		"a-b": {IsDir: true}, "a-b/file": {}, "a.b": {}, "b": {},
 	})
 	for _, test := range []struct {
 		name, root string
 		skip       map[string]bool
 		want       []string
 	}{
-		{"directory", "", map[string]bool{"/a": true}, []string{"/a", "/a-b", "/a-b/file", "/a.b", "/b"}},
-		{"neighbor directories", "", map[string]bool{"/a": true, "/a-b": true}, []string{"/a", "/a-b", "/a.b", "/b"}},
-		{"nested directory", "", map[string]bool{"/a/child": true}, []string{"/a", "/a/child", "/a/child-neighbor", "/a/z", "/a-b", "/a-b/file", "/a.b", "/b"}},
-		{"file skips remaining siblings", "", map[string]bool{"/a/child-neighbor": true}, []string{"/a", "/a/child", "/a/child/file", "/a/child-neighbor", "/a-b", "/a-b/file", "/a.b", "/b"}},
-		{"top-level file", "", map[string]bool{"/a.b": true}, []string{"/a", "/a/child", "/a/child/file", "/a/child-neighbor", "/a/z", "/a-b", "/a-b/file", "/a.b"}},
-		{"nested file keeps parent siblings", "", map[string]bool{"/a/child/file": true}, []string{"/a", "/a/child", "/a/child/file", "/a/child-neighbor", "/a/z", "/a-b", "/a-b/file", "/a.b", "/b"}},
-		{"subtree file", "/a/child/file", map[string]bool{"/a/child/file": true}, []string{"/a/child/file"}},
-		{"subtree root", "/a", map[string]bool{"/a": true}, []string{"/a"}},
-		{"subtree child", "/a", map[string]bool{"/a/child": true}, []string{"/a", "/a/child", "/a/child-neighbor", "/a/z"}},
+		{"directory", "", map[string]bool{"a": true}, []string{"a", "a-b", "a-b/file", "a.b", "b"}},
+		{"neighbor directories", "", map[string]bool{"a": true, "a-b": true}, []string{"a", "a-b", "a.b", "b"}},
+		{"nested directory", "", map[string]bool{"a/child": true}, []string{"a", "a/child", "a/child-neighbor", "a/z", "a-b", "a-b/file", "a.b", "b"}},
+		{"file skips remaining siblings", "", map[string]bool{"a/child-neighbor": true}, []string{"a", "a/child", "a/child/file", "a/child-neighbor", "a-b", "a-b/file", "a.b", "b"}},
+		{"top-level file", "", map[string]bool{"a.b": true}, []string{"a", "a/child", "a/child/file", "a/child-neighbor", "a/z", "a-b", "a-b/file", "a.b"}},
+		{"nested file keeps parent siblings", "", map[string]bool{"a/child/file": true}, []string{"a", "a/child", "a/child/file", "a/child-neighbor", "a/z", "a-b", "a-b/file", "a.b", "b"}},
+		{"subtree file", "a/child/file", map[string]bool{"a/child/file": true}, []string{"a/child/file"}},
+		{"subtree root", "a", map[string]bool{"a": true}, []string{"a"}},
+		{"subtree child", "a", map[string]bool{"a/child": true}, []string{"a", "a/child", "a/child-neighbor", "a/z"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var got []string
@@ -302,7 +302,7 @@ func TestEntryChangesFromPreviousRecord(t *testing.T) {
 		{"type changed", &Record{IsDir: true}, &Record{}, true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			current := test.cur.entry("/file")
+			current := test.cur.entry("file")
 			current.record = test.prev
 			if got := current.isChanged(); got != test.changed {
 				t.Fatalf("changed=%v want=%v", got, test.changed)
@@ -432,11 +432,11 @@ func TestSyncPipelinePlansConcreteEndpoints(t *testing.T) {
 		if fsys.writes != 0 || fsys.reads != 0 {
 			t.Fatal("new file planning performed I/O")
 		}
-		if scanned := trees[side].entries["/file"]; scanned != nil && (scanned.hash != "" || trees[side].get("/file") != scanned) {
+		if scanned := trees[side].entries["file"]; scanned != nil && (scanned.hash != "" || trees[side].get("file") != scanned) {
 			t.Fatal("planning changed the scanned entry")
 		}
 	}
-	if len(tasks) != 1 || tasks[0].op != OpCopy || tasks[0].path != "/file" {
+	if len(tasks) != 1 || tasks[0].op != OpCopy || tasks[0].path != "file" {
 		t.Fatal("unexpected copy plan")
 	}
 	exec := &executor{
@@ -491,7 +491,7 @@ func TestScanExcludesFilteredPaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tree.entries) != 1 || !tree.skipped["/excluded"] || !tree.skipped["/excluded-file"] || tree.get("/file").hash != "" {
+	if len(tree.entries) != 1 || !tree.skipped["excluded"] || !tree.skipped["excluded-file"] || tree.get("file").hash != "" {
 		t.Fatalf("unexpected scan result: %+v", tree)
 	}
 	if observed.writes != 0 || observed.reads != 0 {
@@ -527,16 +527,16 @@ func TestEntryHashIsLazyAndCached(t *testing.T) {
 					t.Fatal(err)
 				}
 				records = map[string]*Record{
-					"/file": {Size: info.Size(), ModTime: info.ModTime().UTC(), Hash: want},
+					"file": {Size: info.Size(), ModTime: info.ModTime().UTC(), Hash: want},
 				}
 			}
 			tree, err := fsys.scan(ctx, records)
 			if err != nil {
 				t.Fatal(err)
 			}
-			scanned := tree.get("/file")
+			scanned := tree.get("file")
 			snapshot := scanned.FileInfo()
-			if snapshot.Hash() != "" || observed.reads != 0 {
+			if snapshot.Path() != "/file" || snapshot.Hash() != "" || observed.reads != 0 {
 				t.Fatal("scan or snapshot capture fetched a hash")
 			}
 			observed.planning = true
@@ -555,7 +555,7 @@ func TestEntryHashIsLazyAndCached(t *testing.T) {
 			if observed.reads != wantReads {
 				t.Fatalf("reads=%d, want %d", observed.reads, wantReads)
 			}
-			if snapshot.Hash() != "" || scanned.toRecord().Hash != want || reuse && records["/file"].Hash != want {
+			if snapshot.Hash() != "" || scanned.toRecord().Hash != want || reuse && records["file"].Hash != want {
 				t.Fatal("lazy hashing changed a retained snapshot or lost the cached hash")
 			}
 		})

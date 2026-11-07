@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"io/fs"
 	stdpath "path"
-	"strings"
 	"time"
 )
 
@@ -108,22 +107,6 @@ type State struct {
 	Revision      string             `json:"revision"`       // Identifies the state content.
 	UpdatedAt     time.Time          `json:"updated_at"`     // UTC time when changed state was prepared for saving.
 	HashAlgorithm crypto.Hash        `json:"hash_algorithm"` // Algorithm shared by all record hashes.
-}
-
-// withPathPrefix converts state keys at the storage boundary without modifying
-// maps held by the caller. Internal keys use "/"; persisted keys use "".
-func (state *State) withPathPrefix(prefix string) *State {
-	convert := func(records map[string]*Record) map[string]*Record {
-		converted := make(map[string]*Record, len(records))
-		for path, record := range records {
-			converted[prefix+strings.TrimPrefix(path, "/")] = record
-		}
-		return converted
-	}
-	converted := *state
-	converted.Source = convert(state.Source)
-	converted.Target = convert(state.Target)
-	return &converted
 }
 
 // Valid reports whether state has a supported protocol version, a nonempty

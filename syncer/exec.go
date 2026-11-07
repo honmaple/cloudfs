@@ -182,7 +182,7 @@ func (e *executor) parallel(ctx context.Context, tasks []syncTask, concurrency i
 func (e *executor) execute(ctx context.Context, task syncTask) error {
 	e.mu.Lock()
 	blocked := e.skipped[task.root]
-	for path := task.path; path != "/"; path = stdpath.Dir(path) {
+	for path := task.path; path != "."; path = stdpath.Dir(path) {
 		if e.skipped[path] {
 			blocked = true
 			break
@@ -271,7 +271,7 @@ func (e *executor) apply(ctx context.Context, task *syncTask) (*Record, error) {
 			return nil, err
 		}
 		if info.IsDir() || (task.record.Size >= 0 && info.Size() >= 0 && info.Size() != task.record.Size) {
-			return nil, fmt.Errorf("%w: invalid transfer result for %s", ErrSyncConflict, task.path)
+			return nil, fmt.Errorf("%w: invalid transfer result for /%s", ErrSyncConflict, task.path)
 		}
 		return &Record{Size: info.Size(), ModTime: info.ModTime().UTC(), Hash: copiedHash}, nil
 	case OpRename:
@@ -331,7 +331,7 @@ func (e *executor) copy(ctx context.Context, task *syncTask) (string, error) {
 	var progress func(int64)
 	if e.option.OnEvent != nil {
 		event := ProgressEvent{
-			FileInfo: task.record.FileInfo(task.path),
+			FileInfo: task.record.FileInfo("/" + task.path),
 			Reverse:  task.reverse,
 		}
 		progress = func(written int64) {
@@ -361,6 +361,13 @@ func (e *executor) copy(ctx context.Context, task *syncTask) (string, error) {
 	return sum, nil
 }
 
+func (task *syncTask) absoluteNewPath() string {
+	if task.newPath == "" {
+		return ""
+	}
+	return "/" + task.newPath
+}
+
 func (e *executor) notify(task *syncTask, status Status, err error) {
 	if e.option.OnEvent == nil {
 		return
@@ -369,11 +376,11 @@ func (e *executor) notify(task *syncTask, status Status, err error) {
 		err = nil
 	}
 	e.option.OnEvent(SyncEvent{
-		FileInfo: task.record.FileInfo(task.path),
+		FileInfo: task.record.FileInfo("/" + task.path),
 		Op:       task.op,
 		Status:   status,
 		Reverse:  task.reverse,
-		NewPath:  task.newPath,
+		NewPath:  task.absoluteNewPath(),
 		Err:      err,
 	})
 }
@@ -388,10 +395,10 @@ func (e *executor) handleError(ctx context.Context, task *syncTask, fn func(cont
 			return err
 		}
 		failure := FileError{
-			FileInfo: task.record.FileInfo(task.path),
+			FileInfo: task.record.FileInfo("/" + task.path),
 			Op:       task.op,
 			Reverse:  task.reverse,
-			NewPath:  task.newPath,
+			NewPath:  task.absoluteNewPath(),
 			Attempt:  retries + 1,
 			Err:      err,
 		}
