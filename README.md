@@ -811,7 +811,7 @@ Configuration supports named drivers addressed as `name:/path`, for example `clo
 
 Command configuration supports JSON / YAML / TOML, with driver names as top-level keys.
 
-Command paths use `name:/path` for named drivers; other paths are native local absolute or relative paths. Uploads and downloads both use `cp`.
+Command paths use `name:/path` for named drivers. `name:` is shorthand for the driver root `name:/`. Other paths are native local absolute or relative paths. Uploads and downloads both use `cp`.
 
 Each named driver also accepts an ordered `middlewares` list for prefix mapping, caching, pagination, rate limiting, compression, and encryption. See the [command-line guide](docs/usage/en/cli.md).
 

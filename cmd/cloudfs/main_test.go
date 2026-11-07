@@ -19,7 +19,7 @@ func TestLocalCommands(t *testing.T) {
 	invoke := func(args ...string) string {
 		t.Helper()
 		var out bytes.Buffer
-		if err := run(context.Background(), args, nil, &out, &out); err != nil {
+		if err := run(context.Background(), append([]string{"cloudfs"}, args...), nil, &out, &out); err != nil {
 			t.Fatalf("%v: %v", args, err)
 		}
 		return out.String()
@@ -60,16 +60,16 @@ func TestLocalCommands(t *testing.T) {
 func TestHelpAndValidation(t *testing.T) {
 	for _, args := range [][]string{nil, {"--help"}, {"help", "cp"}, {"rm", "--help"}} {
 		var out bytes.Buffer
-		if err := run(context.Background(), args, nil, &out, &out); err != nil {
+		if err := run(context.Background(), append([]string{filepath.Join("bin", "cloudfs-custom")}, args...), nil, &out, &out); err != nil {
 			t.Fatal(err)
 		}
-		if out.Len() == 0 {
-			t.Fatal("missing help")
+		if !strings.Contains(out.String(), "cloudfs-custom") {
+			t.Fatalf("help does not use the executable name: %s", &out)
 		}
 	}
 	for _, args := range [][]string{{"copy", "a", "b"}, {"move", "a", "b"}, {"put", "a", "b"}, {"get", "a", "b"}, {"unknown"}, {"rename", "a", "../b"}, {"--root", ".", "ls"}} {
 		var out bytes.Buffer
-		if err := run(context.Background(), args, nil, &out, &out); err == nil {
+		if err := run(context.Background(), append([]string{"cloudfs"}, args...), nil, &out, &out); err == nil {
 			t.Fatalf("accepted %v", args)
 		}
 	}
@@ -77,7 +77,7 @@ func TestHelpAndValidation(t *testing.T) {
 	os.Mkdir(filepath.Join(root, "dir"), 0755)
 	for _, args := range [][]string{{"rm", filepath.Join(root, "dir")}, {"rm", "-r", "/"}} {
 		var out bytes.Buffer
-		if err := run(context.Background(), args, nil, &out, &out); err == nil {
+		if err := run(context.Background(), append([]string{"cloudfs"}, args...), nil, &out, &out); err == nil {
 			t.Fatalf("accepted %v", args)
 		}
 	}
@@ -92,11 +92,18 @@ func TestConfiguredDriver(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	if err := run(context.Background(), []string{"--config", config, "cat", "named:/file"}, nil, &out, &out); err != nil {
+	if err := run(context.Background(), []string{"cloudfs", "--config", config, "cat", "named:/file"}, nil, &out, &out); err != nil {
 		t.Fatal(err)
 	}
 	if out.String() != "configured" {
 		t.Fatal(out.String())
+	}
+	want, err := cliRun(config, "ls", "named:/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := cliRun(config, "ls", "named:"); err != nil || got != want {
+		t.Fatalf("ls named: = %q, %v; want %q", got, err, want)
 	}
 }
 
@@ -121,7 +128,7 @@ func TestCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var out bytes.Buffer
-	if err := run(ctx, []string{"mkdir", "dir"}, nil, &out, &out); !errors.Is(err, context.Canceled) {
+	if err := run(ctx, []string{"cloudfs", "mkdir", "dir"}, nil, &out, &out); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 }

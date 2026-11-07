@@ -591,7 +591,7 @@ cloudfs --config ./drivers.yaml cp ./hello.txt webdav:/hello.txt
 
 命令配置支持 JSON / YAML / TOML，驱动名直接作为顶层键。
 
-命令中的 `name:/path` 访问具名驱动，其余路径均为本地绝对或相对路径；上传和下载统一使用 `cp`。
+命令中的 `name:/path` 访问具名驱动，`name:` 等同于根目录 `name:/`。其余路径均为本地绝对或相对路径，上传和下载统一使用 `cp`。
 
 每个具名驱动还可配置有序的 `middlewares` 列表，支持路径前缀、缓存、分页、限速、压缩和加密，示例见 [命令行文档](docs/usage/zh/cli.md)。
 

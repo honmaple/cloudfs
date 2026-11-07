@@ -28,7 +28,7 @@ func namedPair(t *testing.T) (string, string, string) {
 }
 func cliRun(config string, args ...string) (string, error) {
 	var out bytes.Buffer
-	err := run(context.Background(), append([]string{"--config", config}, args...), strings.NewReader(""), &out, &out)
+	err := run(context.Background(), append([]string{"cloudfs", "--config", config}, args...), strings.NewReader(""), &out, &out)
 	return out.String(), err
 }
 func TestNamedCopyMove(t *testing.T) {
@@ -264,7 +264,7 @@ func TestDefaultConfigDiscovery(t *testing.T) {
 				t.Fatal(err)
 			}
 			var out bytes.Buffer
-			if err := run(context.Background(), []string{"cat", "store:/file"}, nil, &out, &out); err != nil {
+			if err := run(context.Background(), []string{"cloudfs", "cat", "store:/file"}, nil, &out, &out); err != nil {
 				t.Fatal(err)
 			}
 			if out.String() != "default" {
@@ -305,7 +305,7 @@ func TestDefaultConfigPrecedenceAndFailure(t *testing.T) {
 		t.Fatalf("default overrode explicit config: %v", err)
 	}
 	var out bytes.Buffer
-	if err := run(context.Background(), []string{"mkdir", "should-not-exist"}, nil, &out, &out); err == nil {
+	if err := run(context.Background(), []string{"cloudfs", "mkdir", "should-not-exist"}, nil, &out, &out); err == nil {
 		t.Fatal("invalid default config ignored")
 	}
 	if _, err := os.Stat("should-not-exist"); !errors.Is(err, os.ErrNotExist) {

@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 
 	"github.com/urfave/cli/v2"
 )
@@ -15,7 +16,7 @@ import (
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	if err := run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr); err != nil {
+	if err := run(ctx, os.Args, os.Stdin, os.Stdout, os.Stderr); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -23,7 +24,7 @@ func main() {
 
 func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	app := &cli.App{
-		Name:   "cloudfs",
+		Name:   filepath.Base(args[0]),
 		Usage:  "Operate on local and cloud filesystems",
 		Reader: stdin, Writer: stdout, ErrWriter: stderr,
 		HideVersion: true,
@@ -113,7 +114,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			},
 		},
 	}
-	return app.RunContext(ctx, append([]string{"cloudfs"}, args...))
+	return app.RunContext(ctx, args)
 }
 
 // commandAction owns validation and driver lifetime for every command.

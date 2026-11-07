@@ -18,14 +18,14 @@ An explicit configuration takes precedence. An unreadable or invalid selected co
 
 ```sh
 # Automatically read config.yaml when config.json is absent
-cloudfs ls name1:/
+cloudfs ls name1:
 # Explicitly select another configuration
 cloudfs -c ./production.toml ls name1:/
 ```
 
 ## Paths and Basic Operations
 
-`name:/path` addresses a configured driver. All other paths are native local paths, including absolute paths, relative paths, and `..`. Relative paths use the working directory; `ls` defaults to that directory. Global `--config` (alias `-c`) precedes the command. Local operations need no configuration.
+`name:/path` addresses a configured driver. `name:` is shorthand for the driver root `name:/`. Other paths are native local paths, including absolute paths, relative paths, and `..`. Relative paths use the working directory, and `ls` defaults to that directory. Global `--config` (alias `-c`) precedes the command. Local operations need no configuration.
 
 ```sh
 cloudfs ls

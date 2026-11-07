@@ -90,10 +90,11 @@ func (s *driverSet) resolve(value string) (cloudfs.FS, string, string, error) {
 		return nil, "", "", errors.New("path must not be empty")
 	}
 	name, p := "", value
-	before, after, named := strings.Cut(value, ":/")
-	named = named && before != "" && !strings.ContainsAny(before, "/\\") && filepath.VolumeName(value) == ""
+	before, after, named := strings.Cut(value, ":")
+	named = named && before != "" && !strings.ContainsAny(before, "/\\") &&
+		(after == "" || strings.HasPrefix(after, "/")) && filepath.VolumeName(value) == ""
 	if named {
-		name, p = strings.ToLower(before), "/"+after
+		name, p = strings.ToLower(before), "/"+strings.TrimPrefix(after, "/")
 	} else {
 		absolute, err := filepath.Abs(value)
 		if err != nil {
@@ -117,7 +118,7 @@ func (s *driverSet) resolve(value string) (cloudfs.FS, string, string, error) {
 		var err error
 		fsys, err = driver.NewFromString(cfg.Driver, string(cfg.Option))
 		if err != nil {
-			return nil, "", "", fmt.Errorf("cannot initialize driver %q; check driver and options", name)
+			return nil, "", "", fmt.Errorf("cannot initialize driver %q; %s", name, err.Error())
 		}
 		for index, item := range cfg.Middlewares {
 			wrap, err := item.wrapper()

@@ -18,14 +18,14 @@ cloudfs help cp
 
 ```sh
 # 自动读取当前目录的 config.yaml（不存在 config.json 时）
-cloudfs ls name1:/
+cloudfs ls name1:
 # 显式选择其他配置
 cloudfs -c ./production.toml ls name1:/
 ```
 
 ## 路径与基本操作
 
-`name:/path` 访问配置中的具名驱动；其余路径均为操作系统本地路径，支持绝对路径、相对路径和 `..`。相对路径以当前工作目录为基准，`ls` 默认列出当前目录。全局 `--config`（别名 `-c`）放在子命令之前；本地操作无需配置。
+`name:/path` 访问配置中的具名驱动，`name:` 等同于根目录 `name:/`。其余路径均为操作系统本地路径，支持绝对路径、相对路径和 `..`。相对路径以当前工作目录为基准，`ls` 默认列出当前目录。全局 `--config`（别名 `-c`）放在子命令之前，本地操作无需配置。
 
 ```sh
 cloudfs ls
