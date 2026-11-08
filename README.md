@@ -16,8 +16,6 @@ Requires Go 1.25.8 or newer.
 go get github.com/honmaple/cloudfs
 ```
 
-List the root of an S3 bucket. Replace the endpoint, bucket, region, and credentials with your own values.
-
 ```go
 package main
 
@@ -59,7 +57,7 @@ func main() {
 go install github.com/honmaple/cloudfs/cmd/cloudfs@latest
 ```
 
-Save this configuration as `config.yaml` and replace the endpoint, bucket, region, and credentials with your own values.
+Create `config.yaml`.
 
 ```yaml
 s3:
