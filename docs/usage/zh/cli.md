@@ -25,7 +25,7 @@ cloudfs -c ./production.toml ls name1:/
 
 ## 路径与基本操作
 
-`name:/path` 访问配置中的具名驱动，`name:` 等同于根目录 `name:/`。其余路径均为操作系统本地路径，支持绝对路径、相对路径和 `..`。相对路径以当前工作目录为基准，`ls` 默认列出当前目录。全局 `--config`（别名 `-c`）放在子命令之前，本地操作无需配置。
+`name:/path` 访问配置中的具名驱动，`name:` 等同于根目录 `name:/`。其余路径均为操作系统本地路径，支持绝对路径、相对路径和 `..`。相对路径以当前工作目录为基准，`ls` 默认列出当前目录。全局 `--config`（别名 `-c`）可以放在子命令之前或路径之后。本地操作无需配置。
 
 ```sh
 cloudfs ls
@@ -125,11 +125,12 @@ cloudfs --config drivers.json mv name1:/root/a.txt name2:/share/a.txt
 
 ```sh
 cloudfs --config drivers.json sync --conflict src name1:/documents name2:/backup
+cloudfs sync name1:/documents name2:/backup --dry-run --state ./sync-state.json --config drivers.json
 cloudfs --config drivers.json sync --delete --state ./sync-state.json name1:/documents name2:/backup
 cloudfs --config drivers.json bisync --state ./bisync-state.json name1:/documents name2:/backup
 ```
 
-`sync` 同步目录内容，默认保留目标独有文件，`--delete` 开启删除；`--state` 可选，提供后记录元数据。`bisync` 要求 `--state`，传播双方变化及删除。两端目录须已存在。子命令参数放在路径之前：
+`sync` 同步目录内容，默认保留目标独有文件，`--delete` 开启删除。`--state` 可选，提供后记录元数据。`bisync` 要求 `--state`，传播双方变化及删除。两端目录须已存在。子命令选项可以放在路径之前或之后。
 
 - `--concurrency N`：文件复制及最后的文件删除的并发上限，默认 1，0 也按串行执行。大于 1 时要求驱动及中间件支持并发调用。重命名、类型替换准备和建目录先执行，复制后再删除文件及目录；错误后等待在途任务结束再返回。
 - `--dry-run`：输出阶段事件，计划中的文件操作标为 `status=planned`，不修改文件或状态。

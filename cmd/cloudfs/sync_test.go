@@ -65,7 +65,7 @@ func TestSyncPreview(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			config, left, right := namedPair(t)
 			state := filepath.Join(t.TempDir(), "state.json")
-			args := []string{"cloudfs", "--config", config, mode, "--dry-run", "--state", state, "left:/", "right:/"}
+			args := []string{"cloudfs", mode, "left:/", "right:/", "--dry-run", "--state", state, "--config", config}
 			var stdout, stderr bytes.Buffer
 			if err := run(context.Background(), args, nil, &stdout, &stderr); err != nil {
 				t.Fatal(err)

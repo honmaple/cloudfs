@@ -51,7 +51,7 @@ func TestLocalCommands(t *testing.T) {
 	}
 	invoke("rm", "docs/renamed")
 	invoke("rm", "-r", "copies")
-	invoke("rm", "--recursive", "docs")
+	invoke("rm", "docs", "-r")
 	if _, err := os.Stat("docs"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal(err)
 	}

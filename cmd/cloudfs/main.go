@@ -10,7 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 func main() {
@@ -23,7 +23,7 @@ func main() {
 }
 
 func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
-	app := &cli.App{
+	root := &cli.Command{
 		Name:   filepath.Base(args[0]),
 		Usage:  "Operate on local and cloud filesystems",
 		Reader: stdin, Writer: stdout, ErrWriter: stderr,
@@ -35,11 +35,11 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 				Usage:   "Load named drivers from FILE (default: config.json/yaml/yml/toml in current directory)",
 			},
 		},
-		Action: func(c *cli.Context) error {
+		Action: func(_ context.Context, c *cli.Command) error {
 			if c.NArg() != 0 {
 				return fmt.Errorf("unknown command %q", c.Args().First())
 			}
-			return cli.ShowAppHelp(c)
+			return cli.ShowRootCommandHelp(c)
 		},
 		Commands: []*cli.Command{
 			{
@@ -114,25 +114,25 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 			},
 		},
 	}
-	return app.RunContext(ctx, args)
+	return root.Run(ctx, args)
 }
 
 // commandAction owns validation and driver lifetime for every command.
-func commandAction(minArgs, maxArgs int, action func(*cli.Context, *driverSet) error) cli.ActionFunc {
-	return func(c *cli.Context) error {
+func commandAction(minArgs, maxArgs int, action func(context.Context, *cli.Command, *driverSet) error) cli.ActionFunc {
+	return func(ctx context.Context, c *cli.Command) error {
 		if c.NArg() < minArgs || c.NArg() > maxArgs {
-			return fmt.Errorf("%s expects %s (see help)", c.Command.Name, c.Command.ArgsUsage)
+			return fmt.Errorf("%s expects %s (see help)", c.Name, c.ArgsUsage)
 		}
-		if err := c.Context.Err(); err != nil {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		drivers, err := loadDrivers(c.String("config"))
 		if err != nil {
 			return err
 		}
-		err = action(c, drivers)
+		err = action(ctx, c, drivers)
 		if err != nil {
-			err = fmt.Errorf("%s: %w", c.Command.Name, err)
+			err = fmt.Errorf("%s: %w", c.Name, err)
 		}
 		return errors.Join(err, drivers.close())
 	}
