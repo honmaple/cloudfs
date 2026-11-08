@@ -29,6 +29,12 @@ const (
 	ModeTwoWay
 )
 
+// MaxDelete returns a pointer to max for Option.MaxDelete. Zero forbids removals.
+// Sync rejects negative limits.
+func MaxDelete(max int) *int {
+	return &max
+}
+
 // Option configures synchronization. The zero value uses ModeCopy
 // and preserves destination-only entries.
 type Option struct {
@@ -41,9 +47,10 @@ type Option struct {
 	Concurrency int
 	// MaxRetry limits retries per operation after ErrorRetry. Values <= 0 default to 3.
 	MaxRetry int
-	// MaxDelete limits explicitly removed entries across both sides; 0 is unlimited.
+	// MaxDelete limits explicitly removed entries across both sides.
+	// Nil is unlimited. Use MaxDelete(0) to forbid removals.
 	// Recursive removals and type replacements include all removed descendants.
-	MaxDelete int
+	MaxDelete *int
 	// MaxDeletePercent limits removals as a percentage of each receiving side's
 	// scanned entries, excluding the root. 0 disables the limit; valid range is 0–100.
 	MaxDeletePercent int
@@ -82,7 +89,7 @@ func Sync(ctx context.Context, src, dst cloudfs.FS, options ...Option) error {
 	if opt.OnConflict == nil {
 		opt.OnConflict = Abort()
 	}
-	if opt.MaxDelete < 0 || opt.MaxDeletePercent < 0 || opt.MaxDeletePercent > 100 {
+	if (opt.MaxDelete != nil && *opt.MaxDelete < 0) || opt.MaxDeletePercent < 0 || opt.MaxDeletePercent > 100 {
 		return fmt.Errorf("sync: invalid deletion limits")
 	}
 	if opt.Mode == ModeTwoWay && opt.StateStore == nil {
@@ -130,33 +137,6 @@ type syncer struct {
 	state            *State
 	option           Option
 	skippedConflicts map[string]bool
-}
-
-// compare reports whether the two scanned files differ.
-func (s *syncer) compare(ctx context.Context, src, dst *entry) (bool, error) {
-	if s.option.Checksum {
-		if err := src.loadHash(ctx); err != nil {
-			return false, err
-		}
-		if err := dst.loadHash(ctx); err != nil {
-			return false, err
-		}
-	}
-	return !src.Equal(dst), nil
-}
-
-// isChanged compares a scanned entry with its own historical record.
-func (s *syncer) isChanged(ctx context.Context, cur *entry) (bool, error) {
-	if s.option.Checksum && cur.record != nil && !cur.IsDir() && !cur.record.IsDir {
-		if err := cur.loadHash(ctx); err != nil {
-			return false, err
-		}
-	}
-	return cur.isChanged(), nil
-}
-
-func (s *syncer) isDeleted(cur *entry, record *Record) bool {
-	return cur == nil && record != nil
 }
 
 func (s *syncer) init(ctx context.Context) error {
@@ -279,6 +259,10 @@ func (s *syncer) run(ctx context.Context) error {
 		tasks, err = s.twoWayTasks(ctx)
 	}
 	if err != nil {
+		s.notifyPhase(PhasePlan, StatusFailed, err)
+		return err
+	}
+	if err := s.checkDeleteLimits(tasks); err != nil {
 		s.notifyPhase(PhasePlan, StatusFailed, err)
 		return err
 	}
@@ -434,9 +418,6 @@ func (s *syncer) oneWayTasks(ctx context.Context) ([]syncTask, error) {
 		}); err != nil {
 			return nil, err
 		}
-	}
-	if err := checkDeleteLimits(tasks, s.srcTree, s.dstTree, s.option.MaxDelete, s.option.MaxDeletePercent); err != nil {
-		return nil, err
 	}
 	return tasks, nil
 }
@@ -651,9 +632,6 @@ func (s *syncer) twoWayTasks(ctx context.Context) ([]syncTask, error) {
 			return nil, err
 		}
 	}
-	if err := checkDeleteLimits(tasks, s.srcTree, s.dstTree, s.option.MaxDelete, s.option.MaxDeletePercent); err != nil {
-		return nil, err
-	}
 	return tasks, nil
 }
 
@@ -699,6 +677,54 @@ func (s *syncer) keepBothTasks(path string, src, dst *entry, taken map[string]bo
 	}, policy, nil
 }
 
+// notifyPhase derives failed completion from err and uses the shared event handler.
+func (s *syncer) notifyPhase(phase Phase, status Status, err error) {
+	if s.option.OnEvent == nil {
+		return
+	}
+	if err != nil {
+		status = StatusFailed
+	}
+	s.option.OnEvent(SyncEvent{Phase: phase, Status: status, Err: err})
+}
+
+func (s *syncer) handleConflict(ctx context.Context, path string, src, dst *entry) (ConflictPolicy, error) {
+	conflict := Conflict{
+		Source:      src.FileInfo(),
+		Target:      dst.FileInfo(),
+		SourceState: s.state.Source[path].FileInfo(path),
+		TargetState: s.state.Target[path].FileInfo(path),
+	}
+	return s.option.OnConflict(ctx, conflict)
+}
+
+// compare reports whether the two scanned files differ.
+func (s *syncer) compare(ctx context.Context, src, dst *entry) (bool, error) {
+	if s.option.Checksum {
+		if err := src.loadHash(ctx); err != nil {
+			return false, err
+		}
+		if err := dst.loadHash(ctx); err != nil {
+			return false, err
+		}
+	}
+	return !src.Equal(dst), nil
+}
+
+// isChanged compares a scanned entry with its own historical record.
+func (s *syncer) isChanged(ctx context.Context, cur *entry) (bool, error) {
+	if s.option.Checksum && cur.record != nil && !cur.IsDir() && !cur.record.IsDir {
+		if err := cur.loadHash(ctx); err != nil {
+			return false, err
+		}
+	}
+	return cur.isChanged(), nil
+}
+
+func (s *syncer) isDeleted(cur *entry, record *Record) bool {
+	return cur == nil && record != nil
+}
+
 // conflictName reserves an unused sibling path for this plan.
 func (s *syncer) conflictName(path string, taken map[string]bool) string {
 	name, ext := stdpath.Base(path), stdpath.Ext(path)
@@ -721,23 +747,50 @@ func (s *syncer) conflictName(path string, taken map[string]bool) string {
 	}
 }
 
-// notifyPhase derives failed completion from err and uses the shared event handler.
-func (s *syncer) notifyPhase(phase Phase, status Status, err error) {
-	if s.option.OnEvent == nil {
-		return
+// countDeletedEntries counts entries under removal roots. Planning prunes
+// removed directories, so roots on the same side do not overlap.
+func (s *syncer) countDeletedEntries(tree *syncTree, paths []string) int {
+	count := 0
+	for _, path := range paths {
+		tree.walkSubtree(path, func(string, *entry) error {
+			count++
+			return nil
+		})
 	}
-	if err != nil {
-		status = StatusFailed
-	}
-	s.option.OnEvent(SyncEvent{Phase: phase, Status: status, Err: err})
+	return count
 }
 
-func (s *syncer) handleConflict(ctx context.Context, path string, src, dst *entry) (ConflictPolicy, error) {
-	conflict := Conflict{
-		Source:      src.FileInfo(),
-		Target:      dst.FileInfo(),
-		SourceState: s.state.Source[path].FileInfo(path),
-		TargetState: s.state.Target[path].FileInfo(path),
+// checkDeleteLimits validates the complete plan before execution or preview.
+func (s *syncer) checkDeleteLimits(tasks []syncTask) error {
+	maxDelete, maxPercent := s.option.MaxDelete, s.option.MaxDeletePercent
+	if maxDelete == nil && maxPercent == 0 {
+		return nil
 	}
-	return s.option.OnConflict(ctx, conflict)
+	var removed [2][]string
+	for _, task := range tasks {
+		if task.op == OpRemove || task.op == OpRmdir {
+			if task.reverse {
+				removed[0] = append(removed[0], task.path)
+			} else {
+				removed[1] = append(removed[1], task.path)
+			}
+		}
+	}
+	counts := [2]int{s.countDeletedEntries(s.srcTree, removed[0]), s.countDeletedEntries(s.dstTree, removed[1])}
+	totals := [2]int{len(s.srcTree.entries), len(s.dstTree.entries)}
+	if maxDelete != nil && counts[0]+counts[1] > *maxDelete {
+		return fmt.Errorf("%w: %d entries, limit %d", ErrTooManyDeletes, counts[0]+counts[1], *maxDelete)
+	}
+	if maxPercent > 0 {
+		for side, count := range counts {
+			if count*100 > maxPercent*totals[side] {
+				name := "source"
+				if side == 1 {
+					name = "target"
+				}
+				return fmt.Errorf("%w: %d of %d %s entries, limit %d%%", ErrTooManyDeletes, count, totals[side], name, maxPercent)
+			}
+		}
+	}
+	return nil
 }

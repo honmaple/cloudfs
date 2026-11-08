@@ -481,7 +481,7 @@ Filtering runs before hash reads. Dry runs perform needed reads but do not save 
 option := syncer.Option{
     DryRun:           true,
     Mode:             syncer.ModeMirror,
-    MaxDelete:        100,
+    MaxDelete:        syncer.MaxDelete(100),
     MaxDeletePercent: 20,
     OnConflict: syncer.PreferSrc(),
     OnEvent: func(notification syncer.Event) {
@@ -494,9 +494,9 @@ option := syncer.Option{
 
 A dry run loads state, scans, and resolves conflicts normally. `OnEvent` receives one `StatusPlanned` per planned operation. It performs no writes or state saves and emits no copy progress or successful task events. Phase events are still emitted. Hash comparison performs the same reads as a real run, and callbacks still run; callers must avoid write side effects in callbacks. Bidirectional dry runs still require `StateStore`; one-way dry runs load state when a store is provided. No executable plan is retained: a real run scans again.
 
-`MaxDelete` limits the combined number of explicitly removed entries across both sides. Each file and directory counts once per side; recursive removals include all scanned descendants. Type replacements count in every mode. Ordinary file overwrites do not count as deletions.
+`MaxDelete` limits the combined number of explicitly removed entries across both sides. Omit it for no count limit, or set it to `syncer.MaxDelete(0)` to forbid deletions. Each file and directory counts once per side; recursive removals include all scanned descendants. Type replacements count in every mode. Ordinary file overwrites do not count as deletions.
 
-`MaxDeletePercent` is checked separately for each receiving side against that side's current scanned entry count, excluding the root. Both limits must pass when enabled. Equality is allowed; only exceeding a limit fails. Both default to 0 (disabled). Counts cannot be negative; percentages must be in 0–100.
+`MaxDeletePercent` is checked separately for each receiving side against that side's current scanned entry count, excluding the root. Both limits must pass when enabled. Equality is allowed; only exceeding a limit fails. `MaxDeletePercent` defaults to 0 (disabled). Counts must be nonnegative and percentages must be in 0–100.
 
 Exceeding a limit returns `ErrTooManyDeletes`, detectable with `errors.Is`, before any writes or state saves. Dry runs enforce the same limits. Filtered paths and skipped conflicts produce no deletion tasks and add nothing to the deletion count.
 

@@ -134,7 +134,7 @@ cloudfs --config drivers.json bisync --state ./bisync-state.json name1:/document
 
 - `--concurrency N`：文件复制及最后的文件删除的并发上限，默认 1，0 也按串行执行。大于 1 时要求驱动及中间件支持并发调用。重命名、类型替换准备和建目录先执行，复制后再删除文件及目录；错误后等待在途任务结束再返回。
 - `--dry-run`：输出阶段事件，计划中的文件操作标为 `status=planned`，不修改文件或状态。
-- `--max-delete N`：限制两端合计删除条目数，包含递归目录内容和类型替换。0 表示不限制。
+- `--max-delete N`：限制两端合计删除条目数，包含递归目录内容和类型替换。省略时不限制，`--max-delete 0` 禁止删除。
 - `--max-delete-percent N`：限制各接收端删除比例，范围 0–100，0 禁用。超过任一删除限制时，整轮写入前报错，预演同样检查。普通文件覆盖不计入删除。
 - `--checksum`：按哈希比较文件内容。大小和修改时间与历史一致时复用已有哈希。
 - `--conflict abort|skip|src|dst|newer|both`：默认 `abort`，不同文件或类型冲突会报错；`src/dst` 显式选择一端，`skip` 保留冲突路径。

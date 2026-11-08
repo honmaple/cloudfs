@@ -134,7 +134,7 @@ cloudfs --config drivers.json bisync --state ./bisync-state.json name1:/document
 
 - `--concurrency N`: maximum parallel copies and final file removals (default 1; 0 is also serial). Values above 1 require concurrency-safe drivers and middleware. Renames, type-replacement preparation, and directory creation run first; copies precede final file and directory removals. Active tasks finish before an error is returned.
 - `--dry-run`: print phase events and file operations with `status=planned` without changing files or state.
-- `--max-delete N`: limit combined removed entries, including recursive directory contents and type replacements. 0 is unlimited.
+- `--max-delete N`: limit combined removed entries, including recursive directory contents and type replacements. Omit it for no count limit. `--max-delete 0` forbids deletions.
 - `--max-delete-percent N`: limit removals separately for each receiving side (0–100; 0 disables). Exceeding either deletion limit stops the run before writes, including dry runs. Ordinary file overwrites do not count as deletions.
 - `--checksum`: compare file contents by hash. Reuses saved hashes when size and modification time match.
 - `--conflict abort|skip|src|dst|newer|both`: default `abort`; differing files or types conflict. `src/dst` explicitly prefer one side; `skip` preserves conflicts.

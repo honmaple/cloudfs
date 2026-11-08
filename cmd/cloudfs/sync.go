@@ -13,37 +13,39 @@ import (
 	"github.com/urfave/cli/v3"
 )
 
-var syncFlags = []cli.Flag{
-	&cli.BoolFlag{
-		Name:  "dry-run",
-		Usage: "Preview planned operations without changing files or state",
-	},
-	&cli.IntFlag{
-		Name:  "max-delete",
-		Usage: "Maximum removed entries, including directory contents (0 is unlimited)",
-	},
-	&cli.IntFlag{
-		Name:  "max-delete-percent",
-		Usage: "Maximum percentage removed from either side (0 disables the limit)",
-	},
-	&cli.BoolFlag{
-		Name:  "checksum",
-		Usage: "Compare file contents using hashes, reusing saved hashes when possible",
-	},
-	&cli.IntFlag{
-		Name:  "concurrency",
-		Value: 1,
-		Usage: "Parallel copies and file removals (requires concurrency-safe drivers and middleware)",
-	},
-	&cli.StringFlag{
-		Name:  "conflict",
-		Value: "abort",
-		Usage: "Conflict policy: abort, skip, src, dst, newer, both (bisync only)",
-	},
-	&cli.StringFlag{
-		Name:  "state",
-		Usage: "Local state file (required for bisync)",
-	},
+func syncFlags() []cli.Flag {
+	return []cli.Flag{
+		&cli.IntFlag{
+			Name:  "max-delete",
+			Usage: "Maximum removed entries, including directory contents (0 forbids deletions)",
+		},
+		&cli.BoolFlag{
+			Name:  "dry-run",
+			Usage: "Preview planned operations without changing files or state",
+		},
+		&cli.IntFlag{
+			Name:  "max-delete-percent",
+			Usage: "Maximum percentage removed from either side (0 disables the limit)",
+		},
+		&cli.BoolFlag{
+			Name:  "checksum",
+			Usage: "Compare file contents using hashes, reusing saved hashes when possible",
+		},
+		&cli.IntFlag{
+			Name:  "concurrency",
+			Value: 1,
+			Usage: "Parallel copies and file removals (requires concurrency-safe drivers and middleware)",
+		},
+		&cli.StringFlag{
+			Name:  "conflict",
+			Value: "abort",
+			Usage: "Conflict policy: abort, skip, src, dst, newer, both (bisync only)",
+		},
+		&cli.StringFlag{
+			Name:  "state",
+			Usage: "Local state file (required for bisync)",
+		},
+	}
 }
 
 func syncAction(ctx context.Context, c *cli.Command, drivers *driverSet) error {
@@ -113,7 +115,9 @@ func (s *syncRun) run(ctx context.Context, option syncer.Option) error {
 	}
 	option.DryRun = s.cli.Bool("dry-run")
 	option.Concurrency = s.cli.Int("concurrency")
-	option.MaxDelete = s.cli.Int("max-delete")
+	if s.cli.IsSet("max-delete") {
+		option.MaxDelete = syncer.MaxDelete(s.cli.Int("max-delete"))
+	}
 	option.MaxDeletePercent = s.cli.Int("max-delete-percent")
 	option.Checksum = s.cli.Bool("checksum")
 	option.OnConflict = onConflict

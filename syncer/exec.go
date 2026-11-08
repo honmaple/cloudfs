@@ -16,53 +16,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// checkDeleteLimits validates the complete plan before execution or preview.
-func checkDeleteLimits(tasks []syncTask, src, dst *syncTree, maxDelete, maxPercent int) error {
-	if maxDelete == 0 && maxPercent == 0 {
-		return nil
-	}
-	var removed [2][]string
-	for _, task := range tasks {
-		if task.op == OpRemove || task.op == OpRmdir {
-			if task.reverse {
-				removed[0] = append(removed[0], task.path)
-			} else {
-				removed[1] = append(removed[1], task.path)
-			}
-		}
-	}
-	counts := [2]int{countDeletedEntries(src, removed[0]), countDeletedEntries(dst, removed[1])}
-	totals := [2]int{len(src.entries), len(dst.entries)}
-	if maxDelete > 0 && counts[0]+counts[1] > maxDelete {
-		return fmt.Errorf("%w: %d entries, limit %d", ErrTooManyDeletes, counts[0]+counts[1], maxDelete)
-	}
-	if maxPercent > 0 {
-		for side, count := range counts {
-			if count*100 > maxPercent*totals[side] {
-				name := "source"
-				if side == 1 {
-					name = "target"
-				}
-				return fmt.Errorf("%w: %d of %d %s entries, limit %d%%", ErrTooManyDeletes, count, totals[side], name, maxPercent)
-			}
-		}
-	}
-	return nil
-}
-
-// countDeletedEntries counts entries under removal roots. Planning prunes
-// removed directories, so roots on the same side do not overlap.
-func countDeletedEntries(tree *syncTree, paths []string) int {
-	count := 0
-	for _, path := range paths {
-		tree.walkSubtree(path, func(string, *entry) error {
-			count++
-			return nil
-		})
-	}
-	return count
-}
-
 type (
 	// syncTask exists only during this call; it is never persisted or resumed.
 	syncTask struct {

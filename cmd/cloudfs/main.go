@@ -100,7 +100,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 				Usage:     "Synchronize source directory to target",
 				ArgsUsage: "SOURCE DESTINATION",
 				Action:    commandAction(2, 2, syncAction),
-				Flags: append(syncFlags, &cli.BoolFlag{
+				Flags: append(syncFlags(), &cli.BoolFlag{
 					Name:  "mirror",
 					Usage: "Mirror source to target and remove target-only entries",
 				}),
@@ -110,7 +110,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 				Usage:     "Synchronize directories in both directions",
 				ArgsUsage: "SOURCE DESTINATION",
 				Action:    commandAction(2, 2, bisyncAction),
-				Flags:     syncFlags,
+				Flags:     syncFlags(),
 			},
 		},
 	}

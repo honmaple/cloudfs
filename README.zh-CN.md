@@ -347,7 +347,7 @@ option := syncer.Option{
 option := syncer.Option{
     DryRun:           true,
     Mode:             syncer.ModeMirror,
-    MaxDelete:        100,
+    MaxDelete:        syncer.MaxDelete(100),
     MaxDeletePercent: 20,
     OnConflict: syncer.PreferSrc(),
     OnEvent: func(notification syncer.Event) {
@@ -360,9 +360,9 @@ option := syncer.Option{
 
 预演正常加载状态、扫描和解决冲突，通过 `OnEvent` 为每个计划操作发送一次 `StatusPlanned`，不执行写入、不保存状态、不发送复制进度或任务成功事件，阶段事件仍正常发送。哈希比较和回调照常执行，因此调用方应避免回调产生写入副作用。双向预演仍要求 `StateStore`；单向预演仅在提供存储时加载状态。预演不保留可供稍后执行的计划；实际同步会重新扫描。
 
-`MaxDelete` 限制两端合计显式删除的条目数；文件和目录各计一项，递归删除包含全部已扫描后代，同一端同一路径只计一次。各模式下类型替换造成的删除也计入。普通文件覆盖不计入删除数。
+`MaxDelete` 限制两端合计显式删除的条目数。省略时不限制，`syncer.MaxDelete(0)` 禁止删除。文件和目录各计一项，递归删除包含全部已扫描后代，同一端同一路径只计一次。各模式下类型替换造成的删除也计入。普通文件覆盖不计入删除数。
 
-`MaxDeletePercent` 按每个接收端分别检查：计划删除条目数除以该端当前扫描条目数，根目录不计入。两个限制同时设置时必须同时满足；达到限制允许执行，超过才拒绝。两项默认均为 0，表示禁用；数量不能为负，百分比范围为 0–100。
+`MaxDeletePercent` 按每个接收端分别检查：计划删除条目数除以该端当前扫描条目数，根目录不计入。两个限制同时设置时必须同时满足；达到限制允许执行，超过才拒绝。`MaxDeletePercent` 默认为 0，表示禁用。删除上限必须为非负数，百分比范围为 0–100。
 
 超过限制返回可由 `errors.Is` 判断的 `ErrTooManyDeletes`，整轮不执行任何写入或保存状态。预演同样遵守限制。过滤、跳过的冲突不会产生删除任务，也不增加删除计数。
 

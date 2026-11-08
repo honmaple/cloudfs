@@ -101,33 +101,43 @@ func TestDeleteLimits(t *testing.T) {
 	for _, mode := range []string{"sync", "bisync", "reverse"} {
 		for _, replacement := range []bool{false, true} {
 			for _, limit := range []struct {
-				maxDelete int
+				name      string
+				maxDelete *int
 				percent   int
 				blocked   bool
 			}{
 				{
-					maxDelete: 2,
+					name:      "zero",
+					maxDelete: syncer.MaxDelete(0),
 					blocked:   true,
 				},
 				{
+					name:      "count",
+					maxDelete: syncer.MaxDelete(2),
+					blocked:   true,
+				},
+				{
+					name:    "percent",
 					percent: 74,
 					blocked: true,
 				},
 				{
-					maxDelete: 100,
+					name:      "percent-with-count",
+					maxDelete: syncer.MaxDelete(100),
 					percent:   74,
 					blocked:   true,
 				},
 				{
-					maxDelete: 3,
+					name:      "at-limit",
+					maxDelete: syncer.MaxDelete(3),
 					percent:   75,
 				},
 			} {
-				t.Run(fmt.Sprintf("%s/replacement=%t/max=%d/percent=%d", mode, replacement, limit.maxDelete, limit.percent), func(t *testing.T) {
+				t.Run(fmt.Sprintf("%s/replacement=%t/%s", mode, replacement, limit.name), func(t *testing.T) {
 					src, dst, srcDir, dstDir := syncPair(t)
 					store := &singleSyncStore{}
 					ctx := context.Background()
-					run := func(left, right cloudfs.FS, maxDelete, percent int) error {
+					run := func(left, right cloudfs.FS, maxDelete *int, percent int) error {
 						if mode == "sync" {
 							syncMode := syncer.ModeCopy
 							if !replacement {
@@ -158,7 +168,7 @@ func TestDeleteLimits(t *testing.T) {
 					putSyncFile(t, srcDir, "tree/a", "a")
 					putSyncFile(t, srcDir, "tree/b", "b")
 					putSyncFile(t, srcDir, "keep", "keep")
-					if err := run(src, dst, 0, 0); err != nil {
+					if err := run(src, dst, nil, 0); err != nil {
 						t.Fatal(err)
 					}
 					changed := srcDir
@@ -202,12 +212,12 @@ func TestBiSyncDeleteLimitCountsBothSides(t *testing.T) {
 	}
 	removeSyncPath(t, srcDir, "left")
 	removeSyncPath(t, dstDir, "right")
-	option.MaxDelete = 3
+	option.MaxDelete = syncer.MaxDelete(3)
 	option.DryRun = true
 	if err := syncer.Sync(ctx, src, dst, option); !errors.Is(err, syncer.ErrTooManyDeletes) {
 		t.Fatalf("combined limit: %v", err)
 	}
-	option.MaxDelete = 4
+	option.MaxDelete = syncer.MaxDelete(4)
 	option.MaxDeletePercent = 99
 	if err := syncer.Sync(ctx, src, dst, option); !errors.Is(err, syncer.ErrTooManyDeletes) {
 		t.Fatalf("per-side percentage: %v", err)
@@ -268,14 +278,14 @@ func TestDryRunCancellationAndConflict(t *testing.T) {
 func TestInvalidDeleteLimits(t *testing.T) {
 	for _, limits := range [][2]int{{-1, 0}, {0, -1}, {0, 101}} {
 		if err := syncer.Sync(context.Background(), nil, nil, syncer.Option{
-			MaxDelete:        limits[0],
+			MaxDelete:        syncer.MaxDelete(limits[0]),
 			MaxDeletePercent: limits[1],
 		}); err == nil {
 			t.Fatalf("Sync accepted %v", limits)
 		}
 		if err := syncer.Sync(context.Background(), nil, nil, syncer.Option{
 			Mode:             syncer.ModeTwoWay,
-			MaxDelete:        limits[0],
+			MaxDelete:        syncer.MaxDelete(limits[0]),
 			MaxDeletePercent: limits[1],
 		}); err == nil {
 			t.Fatalf("BiSync accepted %v", limits)
@@ -300,14 +310,14 @@ func TestDeleteLimitIgnoresFilteredRemovals(t *testing.T) {
 					Mode:       syncer.ModeTwoWay,
 					DryRun:     true,
 					StateStore: &singleSyncStore{},
-					MaxDelete:  1,
+					MaxDelete:  syncer.MaxDelete(0),
 					Skipper:    skipper,
 				})
 			} else {
 				err = syncer.Sync(context.Background(), left, right, syncer.Option{
 					DryRun:    true,
 					Mode:      syncer.ModeMirror,
-					MaxDelete: 1,
+					MaxDelete: syncer.MaxDelete(0),
 					Skipper:   skipper,
 				})
 			}

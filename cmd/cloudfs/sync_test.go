@@ -113,7 +113,7 @@ func TestSyncDeleteGuard(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(right, "tree", "b"), []byte("target"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, limit := range [][]string{{"--max-delete", "1"}, {"--max-delete-percent", "99"}} {
+	for _, limit := range [][]string{{"--max-delete", "0"}, {"--max-delete", "1"}, {"--max-delete-percent", "99"}} {
 		args := append([]string{"sync", "--mirror"}, limit...)
 		args = append(args, "left:/", "right:/")
 		out, err := cliRun(config, args...)
@@ -127,6 +127,12 @@ func TestSyncDeleteGuard(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(right, "a")); !errors.Is(err, os.ErrNotExist) {
 			t.Fatal("guard did not prevent an earlier copy")
 		}
+	}
+	if _, err := cliRun(config, "sync", "--mirror", "left:/", "right:/"); err != nil {
+		t.Fatalf("mirror without a deletion limit: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(right, "tree")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("target-only tree was not deleted: %v", err)
 	}
 }
 
