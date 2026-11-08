@@ -280,19 +280,28 @@ func (s *syncer) run(ctx context.Context) error {
 		return err
 	}
 	s.notifyPhase(PhasePlan, StatusSucceeded, nil)
-	exec := &executor{
-		srcFS:  s.srcFS,
-		dstFS:  s.dstFS,
-		option: s.option,
+	var (
+		results []taskResult
+		syncErr error
+	)
+	if len(tasks) > 0 {
+		exec := &executor{
+			srcFS:  s.srcFS,
+			dstFS:  s.dstFS,
+			option: s.option,
+		}
+		s.notifyPhase(PhaseExecute, StatusStarted, nil)
+		if s.option.DryRun {
+			err := exec.dryRun(ctx, tasks)
+			s.notifyPhase(PhaseExecute, StatusSucceeded, err)
+			return err
+		}
+		results, syncErr = exec.run(ctx, tasks)
+		s.notifyPhase(PhaseExecute, StatusSucceeded, syncErr)
 	}
-	s.notifyPhase(PhaseExecute, StatusStarted, nil)
 	if s.option.DryRun {
-		err := exec.dryRun(ctx, tasks)
-		s.notifyPhase(PhaseExecute, StatusSucceeded, err)
-		return err
+		return ctx.Err()
 	}
-	results, syncErr := exec.run(ctx, tasks)
-	s.notifyPhase(PhaseExecute, StatusSucceeded, syncErr)
 	// Save confirmed successes even after cancellation; no further tasks execute.
 	s.notifyPhase(PhaseFinish, StatusStarted, nil)
 	finishErr := s.finish(ctx, results)

@@ -186,20 +186,34 @@ func TestPhaseCallbackCancellation(t *testing.T) {
 
 func TestPhaseEventsWithoutTasks(t *testing.T) {
 	src, dst, _, _ := syncPair(t)
+	ctx := context.Background()
+	for _, fsys := range []cloudfs.FS{src, dst} {
+		if err := fsys.MakeDir(ctx, "/shared"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := &singleSyncStore{}
 	var phases []syncer.SyncEvent
-	if err := syncer.Sync(context.Background(), src, dst, syncer.Option{
+	if err := syncer.Sync(ctx, src, dst, syncer.Option{
+		StateStore: store,
 		OnEvent: func(notification syncer.Event) {
 			event, ok := notification.(syncer.SyncEvent)
 			if !ok {
 				t.Fatalf("empty sync reported a task: %+v", notification)
+			}
+			if event.Phase == syncer.PhaseExecute {
+				t.Fatalf("empty sync reported execution: %+v", event)
 			}
 			phases = append(phases, event)
 		},
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if len(phases) != 8 || phases[7].Phase != syncer.PhaseFinish || phases[7].Status != syncer.StatusSucceeded {
+	if len(phases) != 6 || phases[5].Phase != syncer.PhaseFinish || phases[5].Status != syncer.StatusSucceeded {
 		t.Fatalf("incomplete lifecycle: %+v", phases)
+	}
+	if store.saves != 1 {
+		t.Fatalf("empty sync saved state %d times, want 1", store.saves)
 	}
 }
 

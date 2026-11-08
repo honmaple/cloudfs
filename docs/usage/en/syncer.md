@@ -289,7 +289,7 @@ OnEvent: func(event syncer.Event) {
 | `PhaseExecute` | Execute tasks, or report planned tasks in a dry run |
 | `PhaseFinish` | Reconcile and save confirmed state; omitted in dry runs |
 
-Each phase emits `StatusStarted`, followed by `StatusSucceeded` or `StatusFailed` with `Err`. Scanning or planning failures stop the run. Execution failures still proceed to finalization. Phase events are also emitted when there are no file tasks.
+Each phase emits `StatusStarted`, followed by `StatusSucceeded` or `StatusFailed` with `Err`. Scanning or planning failures stop the run. Execution failures still proceed to finalization. An empty plan skips the execution phase.
 
 `Status` includes `StatusStarted`, `StatusSucceeded`, `StatusFailed`, `StatusSkipped`, and `StatusPlanned`.
 

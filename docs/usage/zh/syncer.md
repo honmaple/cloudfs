@@ -225,7 +225,7 @@ OnEvent: func(event syncer.Event) {
 | `PhaseExecute` | 执行任务，预演时报告任务计划 |
 | `PhaseFinish` | 整理和保存已确认状态，预演跳过此阶段 |
 
-每个阶段先发送 `StatusStarted`，结束后发送 `StatusSucceeded` 或带 `Err` 的 `StatusFailed`。扫描或规划失败后停止；执行失败仍进入收尾阶段。无文件任务时也发送阶段事件。
+每个阶段先发送 `StatusStarted`，结束后发送 `StatusSucceeded` 或带 `Err` 的 `StatusFailed`。扫描或规划失败后停止；执行失败仍进入收尾阶段。任务列表为空时跳过执行阶段。
 
 `Status` 包括 `StatusStarted`、`StatusSucceeded`、`StatusFailed`、`StatusSkipped`、`StatusPlanned`。
 

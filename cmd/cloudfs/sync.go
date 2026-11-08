@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"time"
 
 	"github.com/honmaple/cloudfs"
 	"github.com/honmaple/cloudfs/middleware"
@@ -68,9 +69,9 @@ func bisyncAction(c *cli.Context, drivers *driverSet) error {
 }
 
 type syncRun struct {
-	cli     *cli.Context
-	drivers *driverSet
-	planned int
+	cli            *cli.Context
+	drivers        *driverSet
+	phaseStartedAt time.Time
 }
 
 func (s *syncRun) run(option syncer.Option) error {
@@ -116,5 +117,19 @@ func (s *syncRun) run(option syncer.Option) error {
 }
 
 func (s *syncRun) onEvent(e syncer.Event) {
-	fmt.Fprintf(s.cli.App.Writer, "%s\n", e.String())
+	switch event := e.(type) {
+	case syncer.SyncEvent:
+		switch event.Status {
+		case syncer.StatusStarted:
+			s.phaseStartedAt = time.Now()
+			if event.Phase != syncer.PhaseFinish {
+				fmt.Fprintln(s.cli.App.Writer, event)
+			}
+		case syncer.StatusSucceeded, syncer.StatusFailed:
+			elapsed := time.Since(s.phaseStartedAt).Round(time.Microsecond)
+			fmt.Fprintf(s.cli.App.Writer, "%s elapsed=%s\n", event, elapsed)
+		}
+	case syncer.TaskEvent:
+		fmt.Fprintln(s.cli.App.Writer, event)
+	}
 }

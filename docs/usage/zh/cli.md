@@ -121,7 +121,7 @@ cloudfs --config drivers.json mv name1:/root/a.txt name2:/share/a.txt
 
 `sync` 使用 `ModeOneWay`；`bisync` 使用 `ModeTwoWay`，必须指定 `--state`。
 
-同步命令将事件写入标准输出，事件中的文件路径相对于同步根目录。
+同步命令将事件写入标准输出，事件中的文件路径相对于同步根目录。每个阶段的结果通过 `elapsed` 显示该阶段的耗时，收尾阶段只输出结果。
 
 ```sh
 cloudfs --config drivers.json sync --conflict src name1:/documents name2:/backup

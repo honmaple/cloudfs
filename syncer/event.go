@@ -45,6 +45,7 @@ const (
 	// PhasePlan compares entries and generates tasks.
 	PhasePlan
 	// PhaseExecute executes tasks or reports them during a dry run.
+	// An empty plan skips this phase.
 	PhaseExecute
 	// PhaseFinish reconciles and saves confirmed state. Dry runs omit this phase.
 	PhaseFinish

@@ -35,14 +35,25 @@ func TestSyncLogs(t *testing.T) {
 			out := stdout.String()
 			for _, line := range []string{
 				"phase=scan status=started",
-				`op=copy status=succeeded path="file" reverse=false`,
-				"phase=finish status=succeeded",
+				`phase=execute status=succeeded op=copy path="file" reverse=false`,
 			} {
 				if !strings.Contains(out, line) {
 					t.Fatalf("missing %q in stdout: %s", line, out)
 				}
 			}
-			if mode == "bisync" && !strings.Contains(out, `op=copy status=succeeded path="reverse" reverse=true`) {
+			for _, phase := range []string{"scan", "plan", "execute", "finish"} {
+				prefix := "phase=" + phase + " status=succeeded elapsed="
+				_, timing, found := strings.Cut(out, prefix)
+				timing, _, _ = strings.Cut(timing, "\n")
+				elapsed, err := time.ParseDuration(timing)
+				if !found || err != nil || elapsed < 0 {
+					t.Fatalf("missing valid duration for %s: %s", phase, out)
+				}
+			}
+			if strings.Contains(out, "phase=finish status=started") {
+				t.Fatalf("unexpected finish start in stdout: %s", out)
+			}
+			if mode == "bisync" && !strings.Contains(out, `phase=execute status=succeeded op=copy path="reverse" reverse=true`) {
 				t.Fatalf("missing reverse copy in stdout: %s", out)
 			}
 		})
@@ -59,7 +70,7 @@ func TestSyncPreview(t *testing.T) {
 			if err := run(context.Background(), args, nil, &stdout, &stderr); err != nil {
 				t.Fatal(err)
 			}
-			if out := stdout.String(); !strings.Contains(out, "phase=execute status=succeeded") || strings.Contains(out, "status=planned") || stderr.Len() != 0 {
+			if out := stdout.String(); !strings.Contains(out, "phase=plan status=succeeded") || strings.Contains(out, "phase=execute") || strings.Contains(out, "status=planned") || stderr.Len() != 0 {
 				t.Fatalf("empty preview: stdout=%q stderr=%q", stdout.String(), stderr.String())
 			}
 			stdout.Reset()
@@ -73,10 +84,10 @@ func TestSyncPreview(t *testing.T) {
 				t.Fatal(err)
 			}
 			out := stdout.String()
-			if !strings.Contains(out, `op=copy status=planned path="a" reverse=false`) {
+			if !strings.Contains(out, `phase=execute status=planned op=copy path="a" reverse=false`) {
 				t.Fatalf("preview: %q", out)
 			}
-			if mode == "bisync" && !strings.Contains(out, `op=copy status=planned path="b" reverse=true`) {
+			if mode == "bisync" && !strings.Contains(out, `phase=execute status=planned op=copy path="b" reverse=true`) {
 				t.Fatalf("reverse preview: %q", out)
 			}
 			if !strings.Contains(out, "phase=plan status=started") || !strings.Contains(out, "phase=execute status=succeeded") || stderr.Len() != 0 {
@@ -105,8 +116,13 @@ func TestSyncDeleteGuard(t *testing.T) {
 	for _, limit := range [][]string{{"--max-delete", "1"}, {"--max-delete-percent", "99"}} {
 		args := append([]string{"sync", "--delete"}, limit...)
 		args = append(args, "left:/", "right:/")
-		if _, err := cliRun(config, args...); !errors.Is(err, syncer.ErrTooManyDeletes) {
+		out, err := cliRun(config, args...)
+		if !errors.Is(err, syncer.ErrTooManyDeletes) {
 			t.Fatalf("%v: %v", limit, err)
+		}
+		_, failure, found := strings.Cut(out, "phase=plan status=failed ")
+		if !found || !strings.Contains(failure, " elapsed=") {
+			t.Fatalf("missing duration for planning failure: %q", out)
 		}
 		if _, err := os.Stat(filepath.Join(right, "a")); !errors.Is(err, os.ErrNotExist) {
 			t.Fatal("guard did not prevent an earlier copy")
@@ -159,7 +175,7 @@ func TestBiSyncKeepBoth(t *testing.T) {
 		t.Fatalf("one-way keep-both: %v", err)
 	}
 	preview := append(append([]string(nil), args...), "--dry-run", "left:/", "right:/")
-	if out, err := cliRun(config, preview...); err != nil || !strings.Contains(out, `op=copy status=planned path="file.conflict" reverse=true`) || !strings.Contains(out, `op=rename status=planned path="file" reverse=false new_path="file.conflict"`) {
+	if out, err := cliRun(config, preview...); err != nil || !strings.Contains(out, `phase=execute status=planned op=copy path="file.conflict" reverse=true`) || !strings.Contains(out, `phase=execute status=planned op=rename path="file" reverse=false new_path="file.conflict"`) {
 		t.Fatalf("preview: %q, %v", out, err)
 	}
 	if _, err := cliRun(config, append(args, "left:/", "right:/")...); err != nil {

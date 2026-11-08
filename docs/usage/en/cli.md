@@ -121,7 +121,7 @@ Configuration uses top-level driver names only. Unqualified paths always refer t
 
 `sync` uses `ModeOneWay`; `bisync` uses `ModeTwoWay` and requires `--state`.
 
-Sync commands print events to stdout. File paths in those events are relative to the sync roots.
+Sync commands print events to stdout. File paths in those events are relative to the sync roots. Each phase result includes its own duration as `elapsed`. Finalization prints only its result.
 
 ```sh
 cloudfs --config drivers.json sync --conflict src name1:/documents name2:/backup
