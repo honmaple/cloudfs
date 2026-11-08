@@ -1,6 +1,7 @@
 # CloudFS 中文文档
 
-[English](../en/_index.md) | [简体中文](../zh/_index.md)
+[全部使用文档](../README.md) · [English](../en/_index.md)
+
 CloudFS 是一个 Go 文件系统抽象库，用统一的 `cloudfs.FS` 接口封装本地磁盘和多种云存储/远程存储。调用方可以用一致的方式完成目录浏览、文件读取、文件写入、移动、复制、重命名和删除。
 
 ## 文档导航
@@ -203,6 +204,31 @@ err = fs.Move(ctx, "/new-name.txt", "/new-dir")
 err = fs.Copy(ctx, "/new-dir/new-name.txt", "/")
 err = fs.Remove(ctx, "/new-dir/new-name.txt")
 ```
+
+### 路径与文件流
+
+`List` 的附加选项通过路径查询参数传入。例如启用 `PaginationFS` 后，可使用 `/photos?page=2&page_size=100` 指定分页。支持的参数取决于驱动或中间件。可用 `cloudfs.PathWithValues` 构造带查询参数的路径。
+
+可用 `cloudfs.Entry` 构造 `cloudfs.FileInfo`。使用完毕后应关闭 `Open` 和 `Create` 返回的流。关闭写入流会完成上传或落盘，应同时处理传输错误和关闭错误。
+
+```go
+w, err := fs.Create(ctx, "/file.txt")
+if err != nil {
+	return err
+}
+_, err = io.Copy(w, source)
+return errors.Join(err, w.Close())
+```
+
+### 跨文件系统复制
+
+`cloudfs.CopyBetween` 在两个文件系统之间流式复制文件或目录。传入完整目标路径，复制文件时需包含目标文件名。
+
+```go
+err := cloudfs.CopyBetween(ctx, srcFS, "/docs/a.txt", dstFS, "/backup/b.txt")
+```
+
+复制目录时会合并内容，保留空目录和目标独有条目。复制文件时目标父目录必须存在，已有文件可能被覆盖。不支持符号链接和其他特殊文件。调用方负责确保源与目标不重叠，并关闭两个文件系统。`CopyBetween` 会关闭自行打开的流，并返回传输和关闭错误。失败可能留下部分目标内容。
 
 ## 驱动能力矩阵
 

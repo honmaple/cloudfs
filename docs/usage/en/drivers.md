@@ -522,3 +522,23 @@ Notes:
 Import the selected driver or `driver/all` before dynamic construction. Currently `driver.New` / `NewFromString` do not apply their wrapper arguments; explicitly wrap the result with `cloudfs.New`. Unsupported operations return `cloudfs.ErrNotSupport`.
 
 Without explicit Google Drive credentials, the Google client uses default credential discovery. OneDrive `copy_timeout` uses standard `time.Duration`: use `10 * time.Minute` in Go or integer nanoseconds in JSON, not the string `"10m"`.
+
+## Adding a driver
+
+Implement `cloudfs.FS` and validate the options in the driver's constructor. Embed `cloudfs.BaseFS` to return `cloudfs.ErrNotSupport` for operations the driver does not implement. To support construction by name, implement `driver.Option` and register an options factory.
+
+```go
+type Option struct {
+	Token string `json:"token" validate:"required"`
+}
+
+func (opt *Option) NewFS() (cloudfs.FS, error) {
+	return New(opt)
+}
+
+func init() {
+	driver.Register("example", func() driver.Option {
+		return &Option{}
+	})
+}
+```

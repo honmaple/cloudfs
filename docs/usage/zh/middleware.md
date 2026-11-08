@@ -19,6 +19,8 @@ fs, err := middleware.NewFS(
 
 `middleware.NewFS` 实际上等价于 `cloudfs.New`。
 
+可用 `middleware.OptionFS` 将 `middleware.Option` 转成传给 `cloudfs.New` 的包装函数。
+
 ## 中间件列表
 
 ### CacheFS

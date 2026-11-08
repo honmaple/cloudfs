@@ -522,3 +522,23 @@ fs, err := driver.New("mirror", map[string]any{
 动态创建前需导入对应驱动或 `driver/all` 完成注册。当前 `driver.New` / `NewFromString` 不应用传入的包装函数，请创建驱动后显式调用 `cloudfs.New`。不支持的操作返回 `cloudfs.ErrNotSupport`。
 
 Google Drive 未配置三种显式凭证时使用 Google 客户端默认凭证发现机制。OneDrive 的 `copy_timeout` 使用标准 `time.Duration`；Go 配置可用 `10 * time.Minute`，JSON 则填写纳秒整数，不是字符串 `"10m"`。
+
+## 添加驱动
+
+实现 `cloudfs.FS`，并在驱动构造函数中校验配置。可嵌入 `cloudfs.BaseFS`，让未实现的操作返回 `cloudfs.ErrNotSupport`。如需支持按名称创建驱动，实现 `driver.Option` 并注册配置工厂。
+
+```go
+type Option struct {
+	Token string `json:"token" validate:"required"`
+}
+
+func (opt *Option) NewFS() (cloudfs.FS, error) {
+	return New(opt)
+}
+
+func init() {
+	driver.Register("example", func() driver.Option {
+		return &Option{}
+	})
+}
+```

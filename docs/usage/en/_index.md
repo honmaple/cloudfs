@@ -1,6 +1,7 @@
 # CloudFS Documentation
 
-[English](../en/_index.md) | [简体中文](../zh/_index.md)
+[All usage guides](../README.md) · [简体中文](../zh/_index.md)
+
 CloudFS is a Go filesystem abstraction library that exposes local and remote storage backends through a single `cloudfs.FS` interface. Callers can list directories, read files, create files, move, copy, rename, and remove entries with a consistent API.
 
 ## Documentation Map
@@ -201,6 +202,31 @@ err = fs.Move(ctx, "/new-name.txt", "/new-dir")
 err = fs.Copy(ctx, "/new-dir/new-name.txt", "/")
 err = fs.Remove(ctx, "/new-dir/new-name.txt")
 ```
+
+### Paths and streams
+
+`List` accepts additional options as query parameters. For example, `/photos?page=2&page_size=100` requests a page when `PaginationFS` is enabled. Supported parameters depend on the driver or middleware. Use `cloudfs.PathWithValues` to build a path with query parameters.
+
+Use `cloudfs.Entry` to construct a `cloudfs.FileInfo` value. Close streams returned by `Open` and `Create` when finished. Closing a writer completes the upload or write, so handle its error along with any transfer error.
+
+```go
+w, err := fs.Create(ctx, "/file.txt")
+if err != nil {
+	return err
+}
+_, err = io.Copy(w, source)
+return errors.Join(err, w.Close())
+```
+
+### Copy between filesystems
+
+`cloudfs.CopyBetween` streams a file or directory between two filesystems. Pass the exact destination path, including the filename for a file copy.
+
+```go
+err := cloudfs.CopyBetween(ctx, srcFS, "/docs/a.txt", dstFS, "/backup/b.txt")
+```
+
+Directory copies merge into the destination, preserving empty directories and target-only entries. A file copy requires an existing parent directory and can overwrite an existing file. Symbolic links and other special files are unsupported. The caller must ensure the source and destination do not overlap and close both filesystems. `CopyBetween` closes the streams it opens and returns transfer and close errors. A failed copy can leave partial destination content.
 
 ## Driver Capability Matrix
 

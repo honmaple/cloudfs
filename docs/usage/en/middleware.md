@@ -19,6 +19,8 @@ fs, err := middleware.NewFS(
 
 `middleware.NewFS` is effectively an alias of `cloudfs.New`.
 
+Use `middleware.OptionFS` to turn a `middleware.Option` into a wrapper for `cloudfs.New`.
+
 ## Middleware List
 
 ### CacheFS
