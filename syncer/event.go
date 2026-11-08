@@ -128,7 +128,7 @@ type SyncEvent struct {
 func (event SyncEvent) String() string {
 	message := fmt.Sprintf("phase=%s status=%s", event.Phase, event.Status)
 	if event.Err != nil {
-		message += fmt.Sprintf(" err=%v", event.Err)
+		message += fmt.Sprintf(" err=%q", event.Err.Error())
 	}
 	return message
 }
@@ -158,7 +158,7 @@ func (event TaskEvent) String() string {
 		message += fmt.Sprintf(" new_path=%q", event.NewPath)
 	}
 	if event.Err != nil {
-		message += fmt.Sprintf(" err=%v", event.Err)
+		message += fmt.Sprintf(" err=%q", event.Err.Error())
 	}
 	return message
 }
