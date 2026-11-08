@@ -100,8 +100,8 @@ func (status Status) String() string {
 	}
 }
 
-// Event is a synchronization notification. Both modes emit PhaseEvent and
-// SyncEvent values; copies also emit ProgressEvent values. Use a type switch to inspect them.
+// Event is a synchronization notification. Both modes emit SyncEvent and
+// TaskEvent values; copies also emit ProgressEvent values. Use a type switch to inspect them.
 // Event implementations are provided by this package.
 type Event interface {
 	fmt.Stringer
@@ -113,10 +113,10 @@ type baseEvent struct{}
 
 func (baseEvent) event() {}
 
-// PhaseEvent reports StatusStarted followed by StatusSucceeded or StatusFailed
+// SyncEvent reports StatusStarted followed by StatusSucceeded or StatusFailed
 // for one synchronization phase. Err is set for StatusFailed. Execution failures
 // still proceed to PhaseFinish to save confirmed successes.
-type PhaseEvent struct {
+type SyncEvent struct {
 	baseEvent
 	Err    error
 	Phase  Phase
@@ -124,7 +124,7 @@ type PhaseEvent struct {
 }
 
 // String returns the phase, status and any error for logging.
-func (event PhaseEvent) String() string {
+func (event SyncEvent) String() string {
 	message := fmt.Sprintf("phase=%s status=%s", event.Phase, event.Status)
 	if event.Err != nil {
 		message += fmt.Sprintf(" err=%v", event.Err)
@@ -132,26 +132,27 @@ func (event PhaseEvent) String() string {
 	return message
 }
 
-// SyncEvent reports one task in either synchronization mode.
+// TaskEvent reports one task in either synchronization mode.
 // FileInfo describes the copied source, the directory to create, or the object
 // being renamed or removed. Its pre-execution snapshot can be retained.
 // Success confirms this task only; state persistence can still fail later.
-type SyncEvent struct {
+type TaskEvent struct {
 	baseEvent
 	Op Op
 	// Err is set for StatusFailed; ignored operation errors go to OnError.
 	Err      error
 	Status   Status
 	FileInfo FileInfo
-	// NewPath is the absolute rename destination; empty for other operations.
+	// NewPath is the rename destination relative to the synchronization root.
+	// Other operations leave it empty.
 	NewPath string
 	// Reverse is false for writes to target and true for writes to source.
 	Reverse bool
 }
 
 // String returns the operation, status, path, direction and any error for logging.
-func (event SyncEvent) String() string {
-	message := fmt.Sprintf("op=%s status=%s path=%q reverse=%t", event.Op, event.Status, event.FileInfo.Path(), event.Reverse)
+func (event TaskEvent) String() string {
+	message := fmt.Sprintf("phase=execute status=%s op=%s path=%q reverse=%t", event.Status, event.Op, event.FileInfo.Path(), event.Reverse)
 	if event.NewPath != "" {
 		message += fmt.Sprintf(" new_path=%q", event.NewPath)
 	}
@@ -169,7 +170,7 @@ type ProgressEvent struct {
 	baseEvent
 	FileInfo FileInfo
 	Written  int64
-	// Reverse has the same meaning as in SyncEvent.
+	// Reverse has the same meaning as in TaskEvent.
 	Reverse bool
 }
 

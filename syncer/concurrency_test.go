@@ -181,7 +181,7 @@ func TestParallelRetriesCanReportProgress(t *testing.T) {
 		t.Fatal("retry progress blocked callback delivery")
 	}
 	for _, path := range []string{"a", "b", "c"} {
-		if retries["/"+path] != 1 {
+		if retries[path] != 1 {
 			t.Fatalf("unexpected retries: %v", retries)
 		}
 		wantSyncFile(t, dstDir, path, "contents of "+path)
@@ -203,7 +203,7 @@ func TestParallelCancellationSavesCompletedCopies(t *testing.T) {
 				status := syncer.Status(255)
 				var path string
 				switch event := notification.(type) {
-				case syncer.SyncEvent:
+				case syncer.TaskEvent:
 					status, path = event.Status, event.FileInfo.Path()
 				}
 				if status == syncer.StatusSucceeded {
@@ -241,7 +241,7 @@ func TestParallelCancellationSavesCompletedCopies(t *testing.T) {
 				t.Fatalf("invalid completed batch: %+v, %v", state, err)
 			}
 			for _, path := range []string{"a", "b", "c"} {
-				if completed["/"+path] {
+				if completed[path] {
 					wantSyncFile(t, dstDir, path, "contents of "+path)
 					if state.Source[path] == nil || state.Target[path] == nil {
 						t.Fatalf("missing completed state for %s", path)
@@ -461,7 +461,7 @@ func TestSyncStagesDeleteLast(t *testing.T) {
 		Delete:      true,
 		DryRun:      true,
 		OnEvent: taskEvents(func(notification syncer.Event) {
-			if event, ok := notification.(syncer.SyncEvent); ok {
+			if event, ok := notification.(syncer.TaskEvent); ok {
 				planned = append(planned, snapshotTaskEvent(event))
 			}
 		}),
@@ -471,7 +471,7 @@ func TestSyncStagesDeleteLast(t *testing.T) {
 	}
 	option.DryRun = false
 	option.OnEvent = taskEvents(func(notification syncer.Event) {
-		if event, ok := notification.(syncer.SyncEvent); ok && event.Status == syncer.StatusStarted {
+		if event, ok := notification.(syncer.TaskEvent); ok && event.Status == syncer.StatusStarted {
 			executed = append(executed, snapshotTaskEvent(event))
 		}
 	})
@@ -479,7 +479,7 @@ func TestSyncStagesDeleteLast(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, events := range [][]taskEventSnapshot{planned, executed} {
-		if len(events) != 7 || events[0].Path != "/a" || events[1].Path != "/z" || events[2].Path != "/a/deep" {
+		if len(events) != 7 || events[0].Path != "a" || events[1].Path != "z" || events[2].Path != "a/deep" {
 			t.Fatalf("parent directories were not created first: %+v", events)
 		}
 		for i, op := range []syncer.Op{syncer.OpMkdir, syncer.OpMkdir, syncer.OpMkdir, syncer.OpCopy, syncer.OpCopy, syncer.OpRemove, syncer.OpRmdir} {
@@ -536,7 +536,7 @@ func TestKeepBothCopiesCanOverlap(t *testing.T) {
 			StateStore:  &singleSyncStore{},
 			OnConflict:  syncer.KeepBoth(),
 			OnEvent: taskEvents(func(notification syncer.Event) {
-				if event, ok := notification.(syncer.SyncEvent); ok && event.Op == syncer.OpCopy && event.FileInfo.Path() == "/file" && event.Status == syncer.StatusSucceeded {
+				if event, ok := notification.(syncer.TaskEvent); ok && event.Op == syncer.OpCopy && event.FileInfo.Path() == "file" && event.Status == syncer.StatusSucceeded {
 					close(copiedOriginal)
 				}
 			}),

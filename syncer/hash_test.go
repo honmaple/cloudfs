@@ -30,7 +30,7 @@ func TestSyncReusesSavedHashes(t *testing.T) {
 			handler := taskEvents(func(notification syncer.Event) {
 				var event taskEventSnapshot
 				switch value := notification.(type) {
-				case syncer.SyncEvent:
+				case syncer.TaskEvent:
 					event = snapshotTaskEvent(value)
 				default:
 					return
@@ -112,7 +112,7 @@ func TestSyncReusesSavedHashes(t *testing.T) {
 			putSyncFile(t, srcDir, "file", "changed contents")
 			source.rejectData = false
 			run()
-			if source.dataOpens != 5 || target.dataOpens != 0 || len(tasks) != 1 || tasks[0].Path != "/file" {
+			if source.dataOpens != 5 || target.dataOpens != 0 || len(tasks) != 1 || tasks[0].Path != "file" {
 				t.Fatalf("content change: reads=%d/%d tasks=%v", source.dataOpens, target.dataOpens, tasks)
 			}
 			wantSyncFile(t, dstDir, "file", "changed contents")
@@ -423,7 +423,7 @@ func TestNewFileDryRunDoesNotReadContents(t *testing.T) {
 			planned := 0
 			handler := taskEvents(func(event syncer.Event) {
 				switch value := event.(type) {
-				case syncer.SyncEvent:
+				case syncer.TaskEvent:
 					if value.Status == syncer.StatusPlanned && value.Op == syncer.OpCopy {
 						planned++
 					}

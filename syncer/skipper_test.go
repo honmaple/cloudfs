@@ -41,10 +41,10 @@ func TestSkipper(t *testing.T) {
 			removeSyncPath(t, srcDir, "gone")
 			removeSyncPath(t, dstDir, "gone")
 			skip := func(info syncer.FileInfo) bool {
-				if info.Path() == "/gone" {
+				if info.Path() == "gone" {
 					t.Fatal("filter received a historical record absent from both scans")
 				}
-				return strings.HasSuffix(info.Path(), "/secret") || info.Path() == "/ignored"
+				return strings.HasSuffix(info.Path(), "/secret") || info.Path() == "ignored"
 			}
 			if err := run(skip); err != nil {
 				t.Fatal(err)
@@ -102,7 +102,7 @@ func TestSkipperProtectsAncestorOperations(t *testing.T) {
 				if replacement {
 					putSyncFile(t, from, "dir", "replacement")
 				}
-				skip := func(info syncer.FileInfo) bool { return info.Path() == "/dir/secret" }
+				skip := func(info syncer.FileInfo) bool { return info.Path() == "dir/secret" }
 				var err error
 				if mode == "sync" {
 					err = syncer.Sync(context.Background(), left, right, syncer.Option{Delete: true, Skipper: skip, OnConflict: syncer.PreferSrc()})
@@ -141,7 +141,7 @@ func TestSkipperOneWayDirectoryOperations(t *testing.T) {
 				Delete:     true,
 				OnConflict: syncer.PreferSrc(),
 				Skipper: func(info syncer.FileInfo) bool {
-					return info.Path() == "/dir/secret"
+					return info.Path() == "dir/secret"
 				},
 			}); err != nil {
 				t.Fatal(err)
@@ -192,13 +192,13 @@ func TestSkipperPrunesScanBeforeChecksum(t *testing.T) {
 			putSyncFile(t, srcDir, "public", "visible")
 			source, target := &excludedIOFS{FS: src, t: t}, &excludedIOFS{FS: dst, t: t}
 			skip := func(info syncer.FileInfo) bool {
-				if strings.HasPrefix(info.Path(), "/ignored/") {
+				if strings.HasPrefix(info.Path(), "ignored/") {
 					t.Fatalf("visited excluded descendant %s", info.Path())
 				}
 				if info.Hash() != "" {
 					t.Fatal("filter ran after hashing")
 				}
-				return info.Path() == "/ignored" || info.Path() == "/secret"
+				return info.Path() == "ignored" || info.Path() == "secret"
 			}
 			var err error
 			if mode == "sync" {
@@ -316,7 +316,7 @@ func TestSkipperRetainsPrunedHistoryUntilIncluded(t *testing.T) {
 				removeSyncPath(t, dstDir, "dir/file")
 			}
 			if err := run(func(info syncer.FileInfo) bool {
-				if info.Path() != "/dir" {
+				if info.Path() != "dir" {
 					t.Fatalf("filter received a pruned descendant: %s", info.Path())
 				}
 				return true
@@ -356,7 +356,7 @@ func TestSkipperPrunesOtherSideTraversal(t *testing.T) {
 		Checksum: true,
 		Delete:   true,
 		Skipper: func(info syncer.FileInfo) bool {
-			if info.Path() == "/dir" {
+			if info.Path() == "dir" {
 				directories++
 				// Only the source scan prunes this directory. The target scan
 				// contains children, but planning must still prune both sides.

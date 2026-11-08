@@ -52,7 +52,8 @@ type FileError struct {
 	Op       Op
 	// Reverse is false for writes to target and true for writes to source.
 	Reverse bool
-	// NewPath is the absolute rename destination; empty for other operations.
+	// NewPath is the rename destination relative to the synchronization root.
+	// Other operations leave it empty.
 	NewPath string
 	// Attempt starts at 1 and increases for each retry.
 	Attempt int
@@ -100,7 +101,7 @@ const (
 )
 
 // Conflict describes current and previously confirmed file snapshots.
-// Each non-nil FileInfo provides the same absolute path. Nil means absent.
+// Each non-nil FileInfo provides the same relative path. Nil means absent.
 // Entries are read-only; directory decisions apply to the entire subtree.
 type Conflict struct {
 	Source, Target           FileInfo
@@ -119,7 +120,7 @@ type (
 	// Nil includes all paths.
 	Skipper func(info FileInfo) bool
 
-	// EventHandler receives PhaseEvent, SyncEvent and ProgressEvent values.
+	// EventHandler receives SyncEvent, TaskEvent and ProgressEvent values.
 	// Task events follow task order by default. Parallel copies preserve order within each task, while
 	// different tasks may interleave. User callback code is serialized.
 	// Use a type switch to inspect the event. It must not modify
@@ -130,7 +131,7 @@ type (
 	// conflicts skipped during comparison, and tasks abandoned on termination emit
 	// no task events. DryRun task events use StatusPlanned; phase events still
 	// report phase starts and completions.
-	// PhaseEvent reports scanning, planning, execution and state finalization.
+	// SyncEvent reports scanning, planning, execution and state finalization.
 	EventHandler func(Event)
 
 	// ErrorHandler selects a policy after each failed copy (including stream

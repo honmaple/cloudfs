@@ -717,15 +717,15 @@ func (s *syncer) notifyPhase(phase Phase, status Status, err error) {
 	if err != nil {
 		status = StatusFailed
 	}
-	s.option.OnEvent(PhaseEvent{Phase: phase, Status: status, Err: err})
+	s.option.OnEvent(SyncEvent{Phase: phase, Status: status, Err: err})
 }
 
 func (s *syncer) handleConflict(ctx context.Context, path string, src, dst *entry) (ConflictPolicy, error) {
 	conflict := Conflict{
 		Source:      src.FileInfo(),
 		Target:      dst.FileInfo(),
-		SourceState: s.state.Source[path].FileInfo("/" + path),
-		TargetState: s.state.Target[path].FileInfo("/" + path),
+		SourceState: s.state.Source[path].FileInfo(path),
+		TargetState: s.state.Target[path].FileInfo(path),
 	}
 	return s.option.OnConflict(ctx, conflict)
 }

@@ -12,11 +12,6 @@ import (
 )
 
 var syncFlags = []cli.Flag{
-	&cli.IntFlag{
-		Name:  "concurrency",
-		Value: 1,
-		Usage: "Parallel copies and file removals (requires concurrency-safe drivers and middleware)",
-	},
 	&cli.BoolFlag{
 		Name:  "dry-run",
 		Usage: "Preview planned operations without changing files or state",
@@ -29,23 +24,56 @@ var syncFlags = []cli.Flag{
 		Name:  "max-delete-percent",
 		Usage: "Maximum percentage removed from either side (0 disables the limit)",
 	},
-	&cli.StringFlag{
-		Name:  "state",
-		Usage: "Local state file (required for bisync)",
-	},
 	&cli.BoolFlag{
 		Name:  "checksum",
 		Usage: "Compare file contents using hashes, reusing saved hashes when possible",
+	},
+	&cli.IntFlag{
+		Name:  "concurrency",
+		Value: 1,
+		Usage: "Parallel copies and file removals (requires concurrency-safe drivers and middleware)",
 	},
 	&cli.StringFlag{
 		Name:  "conflict",
 		Value: "abort",
 		Usage: "Conflict policy: abort, skip, src, dst, newer, both (bisync only)",
 	},
+	&cli.StringFlag{
+		Name:  "state",
+		Usage: "Local state file (required for bisync)",
+	},
 }
 
-// prepareSync resolves directory roots, conflict handler and optional state.
-func prepareSync(c *cli.Context, drivers *driverSet) (cloudfs.FS, cloudfs.FS, syncer.ConflictHandler, syncer.StateStore, error) {
+func syncAction(c *cli.Context, drivers *driverSet) error {
+	s := &syncRun{
+		cli:     c,
+		drivers: drivers,
+	}
+	return s.run(syncer.Option{
+		Delete: c.Bool("delete"),
+	})
+}
+
+func bisyncAction(c *cli.Context, drivers *driverSet) error {
+	if c.String("state") == "" {
+		return errors.New("bisync requires --state")
+	}
+	s := &syncRun{
+		cli:     c,
+		drivers: drivers,
+	}
+	return s.run(syncer.Option{
+		Mode: syncer.ModeTwoWay,
+	})
+}
+
+type syncRun struct {
+	cli     *cli.Context
+	drivers *driverSet
+	planned int
+}
+
+func (s *syncRun) run(option syncer.Option) error {
 	handlers := map[string]syncer.ConflictHandler{
 		"abort": syncer.Abort(),
 		"skip":  syncer.Skip(),
@@ -54,89 +82,39 @@ func prepareSync(c *cli.Context, drivers *driverSet) (cloudfs.FS, cloudfs.FS, sy
 		"both":  syncer.KeepBoth(),
 		"newer": syncer.PreferNewer(),
 	}
-	onConflict, ok := handlers[c.String("conflict")]
+	onConflict, ok := handlers[s.cli.String("conflict")]
 	if !ok {
-		return nil, nil, nil, nil, errors.New("conflict must be abort, skip, src, dst, newer, or both")
+		return errors.New("conflict must be abort, skip, src, dst, newer, or both")
 	}
-	pair, err := drivers.pair(c.Args().Get(0), c.Args().Get(1))
+	pair, err := s.drivers.pair(s.cli.Args().Get(0), s.cli.Args().Get(1))
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return err
 	}
 	srcFS, err := cloudfs.New(pair.srcFS, middleware.PrefixFS(path.Clean(pair.src)))
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return err
 	}
 	dstFS, err := cloudfs.New(pair.dstFS, middleware.PrefixFS(path.Clean(pair.dst)))
 	if err != nil {
-		return nil, nil, nil, nil, err
+		return err
 	}
-	var store syncer.StateStore
-	if filename := c.String("state"); filename != "" {
-		store = syncer.NewFileStore(
+	if filename := s.cli.String("state"); filename != "" {
+		option.StateStore = syncer.NewFileStore(
 			filename,
-			drivers.identity(pair.srcName, pair.src),
-			drivers.identity(pair.dstName, pair.dst),
+			s.drivers.identity(pair.srcName, pair.src),
+			s.drivers.identity(pair.dstName, pair.dst),
 		)
 	}
-	return srcFS, dstFS, onConflict, store, nil
+	option.DryRun = s.cli.Bool("dry-run")
+	option.Concurrency = s.cli.Int("concurrency")
+	option.MaxDelete = s.cli.Int("max-delete")
+	option.MaxDeletePercent = s.cli.Int("max-delete-percent")
+	option.Checksum = s.cli.Bool("checksum")
+	option.OnConflict = onConflict
+	option.OnEvent = s.onEvent
+	return syncer.Sync(s.cli.Context, srcFS, dstFS, option)
 }
 
-func syncAction(c *cli.Context, drivers *driverSet) error {
-	srcFS, dstFS, onConflict, store, err := prepareSync(c, drivers)
-	if err != nil {
-		return err
-	}
-	return syncer.Sync(c.Context, srcFS, dstFS, syncer.Option{
-		Concurrency:      c.Int("concurrency"),
-		DryRun:           c.Bool("dry-run"),
-		MaxDelete:        c.Int("max-delete"),
-		MaxDeletePercent: c.Int("max-delete-percent"),
-		OnEvent:          syncPreview(c),
-		StateStore:       store,
-
-		Delete:     c.Bool("delete"),
-		Checksum:   c.Bool("checksum"),
-		OnConflict: onConflict,
-	})
-}
-
-func bisyncAction(c *cli.Context, drivers *driverSet) error {
-	if c.String("state") == "" {
-		return errors.New("bisync requires --state")
-	}
-	srcFS, dstFS, onConflict, store, err := prepareSync(c, drivers)
-	if err != nil {
-		return err
-	}
-	return syncer.Sync(c.Context, srcFS, dstFS, syncer.Option{
-		Mode:             syncer.ModeTwoWay,
-		Concurrency:      c.Int("concurrency"),
-		DryRun:           c.Bool("dry-run"),
-		MaxDelete:        c.Int("max-delete"),
-		MaxDeletePercent: c.Int("max-delete-percent"),
-		OnEvent:          syncPreview(c),
-		StateStore:       store,
-		Checksum:         c.Bool("checksum"),
-		OnConflict:       onConflict,
-	})
-}
-
-func syncPreview(c *cli.Context) syncer.EventHandler {
-	if !c.Bool("dry-run") {
-		return nil
-	}
-	return func(notification syncer.Event) {
-		switch event := notification.(type) {
-		case syncer.SyncEvent:
-			info, side := event.FileInfo, "target"
-			if event.Reverse {
-				side = "source"
-			}
-			if event.NewPath != "" {
-				fmt.Fprintf(c.App.Writer, "%s %s %s -> %s\n", event.Op, side, info.Path(), event.NewPath)
-			} else {
-				fmt.Fprintf(c.App.Writer, "%s %s %s\n", event.Op, side, info.Path())
-			}
-		}
-	}
+func (s *syncRun) onEvent(e syncer.Event) {
+	fmt.Fprintf(s.cli.App.Writer, "%s\n", e.String())
 }

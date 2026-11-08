@@ -512,7 +512,7 @@ func TestSyncOnErrorControlsFileRetries(t *testing.T) {
 	option := syncer.Option{OnError: func(ctx context.Context, failure syncer.FileError) (syncer.ErrorPolicy, error) {
 		path := failure.FileInfo.Path()
 		callbacks++
-		if path != "/z-failed" || !errors.Is(failure.Err, errSyncTest) {
+		if path != "z-failed" || !errors.Is(failure.Err, errSyncTest) {
 			t.Fatalf("unexpected file error: %s %v", path, failure.Err)
 		}
 		if retries < 3 {
@@ -658,7 +658,7 @@ func TestSyncRetryUsesScannedEntry(t *testing.T) {
 			err := syncer.Sync(context.Background(), fault, dst, syncer.Option{Checksum: checksum, OnError: func(ctx context.Context, failure syncer.FileError) (syncer.ErrorPolicy, error) {
 				path := failure.FileInfo.Path()
 				calls++
-				if path != "/file" || !errors.Is(failure.Err, errSyncTest) {
+				if path != "file" || !errors.Is(failure.Err, errSyncTest) {
 					t.Fatalf("unexpected error: %s %v", path, failure.Err)
 				}
 				return syncer.ErrorRetry, nil
@@ -786,7 +786,7 @@ func TestSyncOnErrorRetriesCurrentDirectoryOrRemoval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(calls, map[string]int{"/nested": 1, "/extra": 1}) {
+	if !reflect.DeepEqual(calls, map[string]int{"nested": 1, "extra": 1}) {
 		t.Fatalf("callbacks=%v", calls)
 	}
 	if !reflect.DeepEqual(target.stats, map[string]int{"/": 1, "/nested/file": 1}) {
@@ -815,7 +815,7 @@ func TestSyncOnErrorIgnorePreservesFileBaseline(t *testing.T) {
 	option.OnError = func(ctx context.Context, failure syncer.FileError) (syncer.ErrorPolicy, error) {
 		path := failure.FileInfo.Path()
 		calls++
-		if path != "/a-failed" || !errors.Is(failure.Err, errSyncTest) {
+		if path != "a-failed" || !errors.Is(failure.Err, errSyncTest) {
 			t.Fatalf("unexpected error: %s %v", path, failure.Err)
 		}
 		return syncer.ErrorSkip, nil
@@ -854,7 +854,7 @@ func TestSyncOnErrorIgnoreDirectoryAndRemoval(t *testing.T) {
 	if err := syncer.Sync(context.Background(), src, target, option); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(calls, map[string]int{"/nested": 1, "/extra": 1}) {
+	if !reflect.DeepEqual(calls, map[string]int{"nested": 1, "extra": 1}) {
 		t.Fatalf("callbacks=%v", calls)
 	}
 	wantSyncAbsent(t, dstDir, "nested")
@@ -1080,7 +1080,7 @@ func TestSyncCallbacksUseScannedFileInfo(t *testing.T) {
 				return
 			}
 
-			event := notification.(syncer.SyncEvent)
+			event := notification.(syncer.TaskEvent)
 			info := event.FileInfo
 			if info == nil {
 				t.Fatal("missing task FileInfo")
@@ -1105,14 +1105,14 @@ func TestSyncCallbacksUseScannedFileInfo(t *testing.T) {
 	if len(started) != 3 || len(errorsSeen) != 3 {
 		t.Fatalf("tasks=%v errors=%v", started, errorsSeen)
 	}
-	for path, contents := range map[string]string{"/dir/file": "copy contents", "/extra": "remove contents"} {
+	for path, contents := range map[string]string{"dir/file": "copy contents", "extra": "remove contents"} {
 		info := errorsSeen[path]
 
 		if info == nil || info.IsDir() || info.Size() != int64(len(contents)) || info.ModTime().IsZero() || info.Hash() != "" {
 			t.Fatalf("invalid scanned file information for %s: %+v", path, info)
 		}
 	}
-	if info := errorsSeen["/dir"]; !info.IsDir() || info.Size() != 0 || info.Hash() != "" {
+	if info := errorsSeen["dir"]; !info.IsDir() || info.Size() != 0 || info.Hash() != "" {
 		t.Fatal("invalid scanned directory information")
 	}
 	if source.dataOpens != 2 || target.dataOpens != 0 || !reflect.DeepEqual(source.lists, map[string]int{"/": 1, "/dir": 1}) {
@@ -1198,7 +1198,7 @@ func TestSyncTypeConflictPolicies(t *testing.T) {
 				ctx := context.WithValue(context.Background(), struct{}{}, "conflict-context")
 				option := syncer.Option{Delete: true, OnConflict: func(callbackCtx context.Context, conflict syncer.Conflict) (syncer.ConflictPolicy, error) {
 					calls++
-					if callbackCtx != ctx || conflict.Source.Path() != "/conflict" || conflict.Target.Path() != "/conflict" || conflict.Source.IsDir() != sourceDir || conflict.Target.IsDir() == sourceDir || conflict.SourceState != nil || conflict.TargetState != nil {
+					if callbackCtx != ctx || conflict.Source.Path() != "conflict" || conflict.Target.Path() != "conflict" || conflict.Source.IsDir() != sourceDir || conflict.Target.IsDir() == sourceDir || conflict.SourceState != nil || conflict.TargetState != nil {
 						t.Fatalf("unexpected conflict: %+v", conflict)
 					}
 					return policy, nil
@@ -1419,7 +1419,7 @@ func TestSyncFileConflictPolicies(t *testing.T) {
 				if callback {
 					option.OnConflict = func(_ context.Context, conflict syncer.Conflict) (syncer.ConflictPolicy, error) {
 						calls++
-						if conflict.Source.Path() != "/conflict" || conflict.Target.Path() != "/conflict" || conflict.Source.IsDir() || conflict.Target.IsDir() || conflict.Source.Size() != int64(len("source content")) || conflict.Target.Size() != int64(len("target")) {
+						if conflict.Source.Path() != "conflict" || conflict.Target.Path() != "conflict" || conflict.Source.IsDir() || conflict.Target.IsDir() || conflict.Source.Size() != int64(len("source content")) || conflict.Target.Size() != int64(len("target")) {
 							t.Fatalf("unexpected conflict: %+v", conflict)
 						}
 						return policy, nil
@@ -1466,6 +1466,9 @@ func TestSyncFileConflictPreservesMetadata(t *testing.T) {
 		calls++
 		if conflict.SourceState == nil || conflict.TargetState == nil || conflict.SourceState.Size() != int64(len("original")) || conflict.TargetState.Size() != int64(len("original")) {
 			t.Fatal("missing previous file snapshots")
+		}
+		if conflict.SourceState.Path() != "file" || conflict.TargetState.Path() != "file" {
+			t.Fatal("previous file snapshots must use relative paths")
 		}
 		return syncer.ConflictSkip, nil
 	}

@@ -57,7 +57,7 @@ func TestBiSyncKeepsBothVersions(t *testing.T) {
 			var planned, executed []taskEventSnapshot
 			option.DryRun = true
 			option.OnEvent = taskEvents(func(notification syncer.Event) {
-				event, ok := notification.(syncer.SyncEvent)
+				event, ok := notification.(syncer.TaskEvent)
 				if !ok || event.Status != syncer.StatusPlanned {
 					t.Fatalf("unexpected dry-run event: %+v", notification)
 				}
@@ -83,7 +83,7 @@ func TestBiSyncKeepsBothVersions(t *testing.T) {
 						t.Fatalf("incorrect copy progress source: %+v", event)
 					}
 				}
-				if event, ok := notification.(syncer.SyncEvent); ok && event.Status == syncer.StatusStarted {
+				if event, ok := notification.(syncer.TaskEvent); ok && event.Status == syncer.StatusStarted {
 					active = event.Op
 					executed = append(executed, snapshotTaskEvent(event))
 				}
@@ -106,19 +106,19 @@ func TestBiSyncKeepsBothVersions(t *testing.T) {
 			if kind == "files" {
 				want := []taskEventSnapshot{
 					{
-						Path:    "/dir/report.txt",
+						Path:    "dir/report.txt",
 						Op:      syncer.OpRename,
-						NewPath: "/dir/report.conflict.txt",
+						NewPath: "dir/report.conflict.txt",
 						Status:  syncer.StatusStarted,
 					},
 					{
-						Path:    "/dir/report.conflict.txt",
+						Path:    "dir/report.conflict.txt",
 						Op:      syncer.OpCopy,
 						Reverse: true,
 						Status:  syncer.StatusStarted,
 					},
 					{
-						Path:   "/dir/report.txt",
+						Path:   "dir/report.txt",
 						Op:     syncer.OpCopy,
 						Status: syncer.StatusStarted,
 					},
@@ -176,9 +176,9 @@ func TestKeepBothBackupFailures(t *testing.T) {
 				}
 				if ignored {
 					option.OnError = func(ctx context.Context, failure syncer.FileError) (syncer.ErrorPolicy, error) {
-						wantOp, wantPath, wantNewPath := syncer.OpCopy, "/file.conflict", ""
+						wantOp, wantPath, wantNewPath := syncer.OpCopy, "file.conflict", ""
 						if renameFailure {
-							wantOp, wantPath, wantNewPath = syncer.OpRename, "/file", "/file.conflict"
+							wantOp, wantPath, wantNewPath = syncer.OpRename, "file", "file.conflict"
 						}
 						if failure.Op != wantOp || failure.FileInfo.Path() != wantPath || failure.NewPath != wantNewPath || failure.Reverse == renameFailure || failure.Attempt != 1 {
 							t.Fatalf("incorrect backup error context: %+v", failure)
@@ -253,7 +253,7 @@ func TestKeepBothAvoidsFilteredExistingName(t *testing.T) {
 		StateStore: &singleSyncStore{},
 		OnConflict: syncer.KeepBoth(),
 		Skipper: func(info syncer.FileInfo) bool {
-			return info.Path() == "/file.conflict"
+			return info.Path() == "file.conflict"
 		},
 	}); err != nil {
 		t.Fatal(err)
@@ -311,7 +311,7 @@ func TestKeepBothRespectsFilter(t *testing.T) {
 			if info.Hash() != "" {
 				t.Fatal("filter received a content hash")
 			}
-			return info.Path() == "/file.conflict"
+			return info.Path() == "file.conflict"
 		},
 	})
 	if !errors.Is(err, syncer.ErrSyncConflict) || store.saves != 0 {
@@ -363,7 +363,7 @@ func TestKeepBothCancellationSavesCompletedOperations(t *testing.T) {
 				StateStore: store,
 				OnConflict: syncer.KeepBoth(),
 				OnEvent: taskEvents(func(notification syncer.Event) {
-					if event, ok := notification.(syncer.SyncEvent); ok && event.Op == after && (after == syncer.OpRename || event.FileInfo.Path() == "/file.conflict") && event.Status == syncer.StatusSucceeded {
+					if event, ok := notification.(syncer.TaskEvent); ok && event.Op == after && (after == syncer.OpRename || event.FileInfo.Path() == "file.conflict") && event.Status == syncer.StatusSucceeded {
 						cancel()
 					}
 				}),
@@ -430,7 +430,7 @@ func TestKeepBothChecksRenamedSourceContent(t *testing.T) {
 		OnConflict: syncer.KeepBoth(),
 		Checksum:   true,
 		OnEvent: taskEvents(func(notification syncer.Event) {
-			if event, ok := notification.(syncer.SyncEvent); ok && event.NewPath != "" && event.Op == syncer.OpRename && event.Status == syncer.StatusSucceeded {
+			if event, ok := notification.(syncer.TaskEvent); ok && event.NewPath != "" && event.Op == syncer.OpRename && event.Status == syncer.StatusSucceeded {
 				putSyncFile(t, dstDir, "file.conflict", "TARGET VERSION")
 				if err := os.Chtimes(filepath.Join(dstDir, "file.conflict"), info.ModTime(), info.ModTime()); err != nil {
 					t.Fatal(err)
@@ -580,7 +580,7 @@ func TestKeepBothUsesRenamedSnapshot(t *testing.T) {
 				StateStore:  store,
 				OnConflict:  syncer.KeepBoth(),
 				OnEvent: taskEvents(func(notification syncer.Event) {
-					if event, ok := notification.(syncer.SyncEvent); ok && event.Op == syncer.OpRename && event.Status == syncer.StatusStarted {
+					if event, ok := notification.(syncer.TaskEvent); ok && event.Op == syncer.OpRename && event.Status == syncer.StatusStarted {
 						retained = event.FileInfo
 					}
 				}),
@@ -626,14 +626,14 @@ func (fsys *renameTimeFS) Rename(ctx context.Context, path, name string) error {
 func TestPreferNewerDecisions(t *testing.T) {
 	earlier := (&syncer.Record{
 		ModTime: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC),
-	}).FileInfo("/file")
+	}).FileInfo("file")
 	later := (&syncer.Record{
 		ModTime: time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC),
-	}).FileInfo("/file")
-	unknown := (&syncer.Record{}).FileInfo("/file")
+	}).FileInfo("file")
+	unknown := (&syncer.Record{}).FileInfo("file")
 	directory := (&syncer.Record{
 		IsDir: true,
-	}).FileInfo("/file")
+	}).FileInfo("file")
 	for _, test := range []struct {
 		name           string
 		source, target syncer.FileInfo

@@ -56,7 +56,7 @@ func (record *Record) Equal(other *Record) bool {
 	return record.Size == other.Size && record.ModTime.Equal(other.ModTime)
 }
 
-// FileInfo adapts a record to a read-only view at an absolute path within the supplied FS.
+// FileInfo adapts a record to a read-only view at the given relative path.
 // A nil record returns nil. The returned snapshot is independent of later record changes.
 func (record *Record) FileInfo(path string) FileInfo {
 	snapshot := record.entry(path)
@@ -83,7 +83,6 @@ func (record *Record) withHash(hash string) *Record {
 	confirmed.Hash = hash
 	return &confirmed
 }
-
 
 // State contains the confirmed per-side file metadata used as a historical
 // comparison baseline. It may include partial successes, not execution progress.

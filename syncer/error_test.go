@@ -48,7 +48,7 @@ func TestSyncPreservesDriverAndCallbackErrors(t *testing.T) {
 					if failure.Error() != original.Error() || !errors.As(failure, &pathErr) || pathErr != original {
 						t.Fatal("FileError changed or lost its underlying error")
 					}
-					if failure.Err != original || failure.FileInfo.Path() != "/file" {
+					if failure.Err != original || failure.FileInfo.Path() != "file" {
 						t.Fatalf("callback changed driver error: %v", failure.Err)
 					}
 					if custom {
@@ -59,7 +59,7 @@ func TestSyncPreservesDriverAndCallbackErrors(t *testing.T) {
 				var eventErr error
 				event := taskEvents(func(event syncer.Event) {
 					switch e := event.(type) {
-					case syncer.SyncEvent:
+					case syncer.TaskEvent:
 						if e.Status == syncer.StatusFailed {
 							eventErr = e.Err
 						}
@@ -152,7 +152,7 @@ func TestSourceChangesAreNotConfirmed(t *testing.T) {
 						status := syncer.Status(255)
 						var eventErr error
 						switch event := notification.(type) {
-						case syncer.SyncEvent:
+						case syncer.TaskEvent:
 							status, eventErr = event.Status, event.Err
 						case syncer.ProgressEvent:
 							if phase == "during" && event.Written > 0 && !changed {
@@ -264,7 +264,7 @@ func TestBiSyncDeletionConflictChecksTransferHash(t *testing.T) {
 			removeSyncPath(t, removed, "file")
 			putSyncFile(t, survivor, "file", "new!")
 			option.OnEvent = taskEvents(func(notification syncer.Event) {
-				event, ok := notification.(syncer.SyncEvent)
+				event, ok := notification.(syncer.TaskEvent)
 				if !ok || event.Status != syncer.StatusStarted || event.Op != syncer.OpCopy {
 					return
 				}

@@ -19,7 +19,7 @@ func TestPhaseEvents(t *testing.T) {
 				src, dst, srcDir, _ := syncPair(t)
 				putSyncFile(t, srcDir, "file", "contents")
 				store := &singleSyncStore{}
-				var phases []syncer.PhaseEvent
+				var phases []syncer.SyncEvent
 				active := false
 				var current syncer.Phase
 				tasks, progress := 0, 0
@@ -30,7 +30,7 @@ func TestPhaseEvents(t *testing.T) {
 					StateStore:  store,
 					OnEvent: func(notification syncer.Event) {
 						switch event := notification.(type) {
-						case syncer.PhaseEvent:
+						case syncer.SyncEvent:
 							phases = append(phases, event)
 							if event.Status == syncer.StatusStarted {
 								if active {
@@ -43,7 +43,7 @@ func TestPhaseEvents(t *testing.T) {
 								}
 								active = false
 							}
-						case syncer.SyncEvent:
+						case syncer.TaskEvent:
 							if !active || current != syncer.PhaseExecute {
 								t.Fatal("task event outside execution phase")
 							}
@@ -62,14 +62,14 @@ func TestPhaseEvents(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				var want []syncer.PhaseEvent
+				var want []syncer.SyncEvent
 				for _, phase := range []syncer.Phase{syncer.PhaseScan, syncer.PhasePlan, syncer.PhaseExecute, syncer.PhaseFinish} {
 					if dryRun && phase == syncer.PhaseFinish {
 						break
 					}
 					want = append(want,
-						syncer.PhaseEvent{Phase: phase, Status: syncer.StatusStarted},
-						syncer.PhaseEvent{Phase: phase, Status: syncer.StatusSucceeded})
+						syncer.SyncEvent{Phase: phase, Status: syncer.StatusStarted},
+						syncer.SyncEvent{Phase: phase, Status: syncer.StatusSucceeded})
 				}
 				if !reflect.DeepEqual(phases, want) || active || tasks == 0 {
 					t.Fatalf("phases=%+v tasks=%d", phases, tasks)
@@ -112,11 +112,11 @@ func TestPhaseFailures(t *testing.T) {
 				store.failSave = true
 				failedPhase, lastPhase = syncer.PhaseFinish, syncer.PhaseFinish
 			}
-			var phases []syncer.PhaseEvent
+			var phases []syncer.SyncEvent
 			err := syncer.Sync(context.Background(), src, dst, syncer.Option{
 				StateStore: store,
 				OnEvent: func(notification syncer.Event) {
-					if event, ok := notification.(syncer.PhaseEvent); ok {
+					if event, ok := notification.(syncer.SyncEvent); ok {
 						phases = append(phases, event)
 					}
 				},
@@ -155,11 +155,11 @@ func TestPhaseCallbackCancellation(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			store := &checkpointStore{}
-			var phases []syncer.PhaseEvent
+			var phases []syncer.SyncEvent
 			err := syncer.Sync(ctx, src, dst, syncer.Option{
 				StateStore: store,
 				OnEvent: func(notification syncer.Event) {
-					if event, ok := notification.(syncer.PhaseEvent); ok {
+					if event, ok := notification.(syncer.SyncEvent); ok {
 						phases = append(phases, event)
 						if event.Phase == phase && event.Status == syncer.StatusStarted {
 							cancel()
@@ -186,10 +186,10 @@ func TestPhaseCallbackCancellation(t *testing.T) {
 
 func TestPhaseEventsWithoutTasks(t *testing.T) {
 	src, dst, _, _ := syncPair(t)
-	var phases []syncer.PhaseEvent
+	var phases []syncer.SyncEvent
 	if err := syncer.Sync(context.Background(), src, dst, syncer.Option{
 		OnEvent: func(notification syncer.Event) {
-			event, ok := notification.(syncer.PhaseEvent)
+			event, ok := notification.(syncer.SyncEvent)
 			if !ok {
 				t.Fatalf("empty sync reported a task: %+v", notification)
 			}
@@ -206,7 +206,7 @@ func TestPhaseEventsWithoutTasks(t *testing.T) {
 // taskEvents keeps task-focused tests independent of lifecycle notifications.
 func taskEvents(handler syncer.EventHandler) syncer.EventHandler {
 	return func(event syncer.Event) {
-		if _, ok := event.(syncer.PhaseEvent); ok {
+		if _, ok := event.(syncer.SyncEvent); ok {
 			return
 		}
 		handler(event)
@@ -222,7 +222,7 @@ type taskEventSnapshot struct {
 	Err     error
 }
 
-func snapshotTaskEvent(event syncer.SyncEvent) taskEventSnapshot {
+func snapshotTaskEvent(event syncer.TaskEvent) taskEventSnapshot {
 	return taskEventSnapshot{
 		Path:    event.FileInfo.Path(),
 		Op:      event.Op,
@@ -251,15 +251,15 @@ func TestSyncTaskEvents(t *testing.T) {
 	}
 	var events []taskEventSnapshot
 	for _, event := range retained {
-		events = append(events, snapshotTaskEvent(event.(syncer.SyncEvent)))
+		events = append(events, snapshotTaskEvent(event.(syncer.TaskEvent)))
 	}
 	want := []taskEventSnapshot{
-		{Path: "/dir", Op: syncer.OpMkdir, Status: syncer.StatusStarted},
-		{Path: "/dir", Op: syncer.OpMkdir, Status: syncer.StatusSucceeded},
-		{Path: "/dir/file", Op: syncer.OpCopy, Status: syncer.StatusStarted},
-		{Path: "/dir/file", Op: syncer.OpCopy, Status: syncer.StatusSucceeded},
-		{Path: "/old", Op: syncer.OpRmdir, Status: syncer.StatusStarted},
-		{Path: "/old", Op: syncer.OpRmdir, Status: syncer.StatusSucceeded},
+		{Path: "dir", Op: syncer.OpMkdir, Status: syncer.StatusStarted},
+		{Path: "dir", Op: syncer.OpMkdir, Status: syncer.StatusSucceeded},
+		{Path: "dir/file", Op: syncer.OpCopy, Status: syncer.StatusStarted},
+		{Path: "dir/file", Op: syncer.OpCopy, Status: syncer.StatusSucceeded},
+		{Path: "old", Op: syncer.OpRmdir, Status: syncer.StatusStarted},
+		{Path: "old", Op: syncer.OpRmdir, Status: syncer.StatusSucceeded},
 	}
 	if !reflect.DeepEqual(events, want) {
 		t.Fatalf("events=%+v, want %+v", events, want)
@@ -278,7 +278,7 @@ func TestSyncTaskEventsAfterErrorHandling(t *testing.T) {
 				if _, ok := event.(syncer.ProgressEvent); ok {
 					return
 				}
-				events = append(events, snapshotTaskEvent(event.(syncer.SyncEvent)))
+				events = append(events, snapshotTaskEvent(event.(syncer.TaskEvent)))
 			})}
 			if mode == "stat" {
 				dst = &targetStatFault{FS: dst, failures: 1}
@@ -303,7 +303,7 @@ func TestSyncTaskEventsAfterErrorHandling(t *testing.T) {
 				return syncer.ErrorAbort, failure.Err
 			}
 			err := syncer.Sync(ctx, src, dst, option)
-			if len(events) != 2 || events[0].Status != syncer.StatusStarted || events[1].Path != "/file" || events[1].Op != syncer.OpCopy {
+			if len(events) != 2 || events[0].Status != syncer.StatusStarted || events[1].Path != "file" || events[1].Op != syncer.OpCopy {
 				t.Fatalf("events=%+v", events)
 			}
 			status := syncer.StatusFailed
@@ -344,7 +344,7 @@ func TestSyncTaskEventsForBlockedChildren(t *testing.T) {
 			if _, ok := event.(syncer.ProgressEvent); ok {
 				return
 			}
-			events = append(events, snapshotTaskEvent(event.(syncer.SyncEvent)))
+			events = append(events, snapshotTaskEvent(event.(syncer.TaskEvent)))
 		}),
 		OnError: func(ctx context.Context, _ syncer.FileError) (syncer.ErrorPolicy, error) {
 			return syncer.ErrorSkip, nil
@@ -354,9 +354,9 @@ func TestSyncTaskEventsForBlockedChildren(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []taskEventSnapshot{
-		{Path: "/dir", Op: syncer.OpMkdir, Status: syncer.StatusStarted},
-		{Path: "/dir", Op: syncer.OpMkdir, Status: syncer.StatusSkipped},
-		{Path: "/dir/file", Op: syncer.OpCopy, Status: syncer.StatusSkipped},
+		{Path: "dir", Op: syncer.OpMkdir, Status: syncer.StatusStarted},
+		{Path: "dir", Op: syncer.OpMkdir, Status: syncer.StatusSkipped},
+		{Path: "dir/file", Op: syncer.OpCopy, Status: syncer.StatusSkipped},
 	}
 	if !reflect.DeepEqual(events, want) {
 		t.Fatalf("events=%+v, want %+v", events, want)
@@ -377,7 +377,7 @@ func TestBiSyncTaskEventsAndPersistenceFailure(t *testing.T) {
 				return
 			}
 
-			snapshot := snapshotTaskEvent(event.(syncer.SyncEvent))
+			snapshot := snapshotTaskEvent(event.(syncer.TaskEvent))
 			events = append(events, snapshot)
 		}),
 	})
@@ -385,10 +385,10 @@ func TestBiSyncTaskEventsAndPersistenceFailure(t *testing.T) {
 		t.Fatalf("got %v", err)
 	}
 	want := []taskEventSnapshot{
-		{Path: "/left", Op: syncer.OpCopy, Status: syncer.StatusStarted},
-		{Path: "/left", Op: syncer.OpCopy, Status: syncer.StatusSucceeded},
-		{Path: "/right", Op: syncer.OpCopy, Reverse: true, Status: syncer.StatusStarted},
-		{Path: "/right", Op: syncer.OpCopy, Reverse: true, Status: syncer.StatusSucceeded},
+		{Path: "left", Op: syncer.OpCopy, Status: syncer.StatusStarted},
+		{Path: "left", Op: syncer.OpCopy, Status: syncer.StatusSucceeded},
+		{Path: "right", Op: syncer.OpCopy, Reverse: true, Status: syncer.StatusStarted},
+		{Path: "right", Op: syncer.OpCopy, Reverse: true, Status: syncer.StatusSucceeded},
 	}
 	if !reflect.DeepEqual(events, want) {
 		t.Fatalf("events=%+v, want %+v", events, want)
@@ -404,7 +404,7 @@ func TestBiSyncTaskEventsAndPersistenceFailure(t *testing.T) {
 				return
 			}
 
-			snapshot := snapshotTaskEvent(event.(syncer.SyncEvent))
+			snapshot := snapshotTaskEvent(event.(syncer.TaskEvent))
 			events = append(events, snapshot)
 		}),
 	})
@@ -416,7 +416,7 @@ func TestBiSyncTaskEventsAndPersistenceFailure(t *testing.T) {
 func TestBiSyncSkippedTaskEventsKeepDirection(t *testing.T) {
 	src, dst, _, dstDir := syncPair(t)
 	putSyncFile(t, dstDir, "dir/file", "reverse copy")
-	var retained []syncer.SyncEvent
+	var retained []syncer.TaskEvent
 	err := syncer.Sync(context.Background(), &fileOperationFaultFS{FS: src}, dst, syncer.Option{
 		Mode:       syncer.ModeTwoWay,
 		StateStore: &singleSyncStore{},
@@ -425,7 +425,7 @@ func TestBiSyncSkippedTaskEventsKeepDirection(t *testing.T) {
 				return
 			}
 
-			retained = append(retained, event.(syncer.SyncEvent))
+			retained = append(retained, event.(syncer.TaskEvent))
 		}),
 		OnError: func(ctx context.Context, _ syncer.FileError) (syncer.ErrorPolicy, error) {
 			return syncer.ErrorSkip, nil
@@ -440,9 +440,9 @@ func TestBiSyncSkippedTaskEventsKeepDirection(t *testing.T) {
 		events = append(events, snapshot)
 	}
 	want := []taskEventSnapshot{
-		{Path: "/dir", Op: syncer.OpMkdir, Reverse: true, Status: syncer.StatusStarted},
-		{Path: "/dir", Op: syncer.OpMkdir, Reverse: true, Status: syncer.StatusSkipped},
-		{Path: "/dir/file", Op: syncer.OpCopy, Reverse: true, Status: syncer.StatusSkipped},
+		{Path: "dir", Op: syncer.OpMkdir, Reverse: true, Status: syncer.StatusStarted},
+		{Path: "dir", Op: syncer.OpMkdir, Reverse: true, Status: syncer.StatusSkipped},
+		{Path: "dir/file", Op: syncer.OpCopy, Reverse: true, Status: syncer.StatusSkipped},
 	}
 	if !reflect.DeepEqual(events, want) {
 		t.Fatalf("events=%+v, want %+v", events, want)
@@ -477,12 +477,12 @@ func TestTwoWayEventsDescribeTask(t *testing.T) {
 				} else {
 					putSyncFile(t, changedDir, "file", "updated contents")
 				}
-				var retained []syncer.SyncEvent
+				var retained []syncer.TaskEvent
 				option.OnEvent = taskEvents(func(event syncer.Event) {
 					if _, ok := event.(syncer.ProgressEvent); ok {
 						return
 					}
-					retained = append(retained, event.(syncer.SyncEvent))
+					retained = append(retained, event.(syncer.TaskEvent))
 				})
 				if err := syncer.Sync(ctx, src, dst, option); err != nil {
 					t.Fatal(err)
@@ -495,7 +495,7 @@ func TestTwoWayEventsDescribeTask(t *testing.T) {
 					if operation == "delete" {
 						op, content = syncer.OpRemove, "original"
 					}
-					if event.FileInfo == nil || event.FileInfo.Path() != "/file" || event.FileInfo.IsDir() || event.FileInfo.Size() != int64(len(content)) || event.FileInfo.ModTime().IsZero() {
+					if event.FileInfo == nil || event.FileInfo.Path() != "file" || event.FileInfo.IsDir() || event.FileInfo.Size() != int64(len(content)) || event.FileInfo.ModTime().IsZero() {
 						t.Fatalf("incorrect task snapshot: %+v", event)
 					}
 					if event.Reverse != reverse || event.Op != op || event.Err != nil {
@@ -521,7 +521,7 @@ func TestCopyProgressRetriesAndDirection(t *testing.T) {
 			started, finished := false, false
 			handler := taskEvents(func(event syncer.Event) {
 				switch event := event.(type) {
-				case syncer.SyncEvent:
+				case syncer.TaskEvent:
 					if event.Status == syncer.StatusStarted {
 						started = true
 					} else {
@@ -561,7 +561,7 @@ func TestCopyProgressRetriesAndDirection(t *testing.T) {
 			last, attempt := int64(-1), 0
 			for _, p := range samples {
 				info := p.FileInfo
-				if info == nil || info.Path() != "/file" || info.Size() != int64(len(content)) || p.Reverse != (mode == "reverse") {
+				if info == nil || info.Path() != "file" || info.Size() != int64(len(content)) || p.Reverse != (mode == "reverse") {
 					t.Fatalf("invalid snapshot: %+v", p)
 				}
 				if p.Written == 0 {

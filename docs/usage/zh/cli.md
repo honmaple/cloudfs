@@ -121,6 +121,8 @@ cloudfs --config drivers.json mv name1:/root/a.txt name2:/share/a.txt
 
 `sync` 使用 `ModeOneWay`；`bisync` 使用 `ModeTwoWay`，必须指定 `--state`。
 
+同步命令将事件写入标准输出，事件中的文件路径相对于同步根目录。
+
 ```sh
 cloudfs --config drivers.json sync --conflict src name1:/documents name2:/backup
 cloudfs --config drivers.json sync --delete --state ./sync-state.json name1:/documents name2:/backup
@@ -130,7 +132,7 @@ cloudfs --config drivers.json bisync --state ./bisync-state.json name1:/document
 `sync` 同步目录内容，默认保留目标独有文件，`--delete` 开启删除；`--state` 可选，提供后记录元数据。`bisync` 要求 `--state`，传播双方变化及删除。两端目录须已存在。子命令参数放在路径之前：
 
 - `--concurrency N`：文件复制及最后的文件删除的并发上限，默认 1，0 也按串行执行。大于 1 时要求驱动及中间件支持并发调用。重命名、类型替换准备和建目录先执行，复制后再删除文件及目录；错误后等待在途任务结束再返回。
-- `--dry-run`：预演操作，以 `操作 source|target 路径` 输出计划，不修改文件或状态。
+- `--dry-run`：输出阶段事件，计划中的文件操作标为 `status=planned`，不修改文件或状态。
 - `--max-delete N`：限制两端合计删除条目数，包含递归目录内容和类型替换。0 表示不限制。
 - `--max-delete-percent N`：限制各接收端删除比例，范围 0–100，0 禁用。超过任一删除限制时，整轮写入前报错，预演同样检查。普通文件覆盖不计入删除。
 - `--checksum`：按哈希比较文件内容。大小和修改时间与历史一致时复用已有哈希。
@@ -138,6 +140,8 @@ cloudfs --config drivers.json bisync --state ./bisync-state.json name1:/document
 - `--conflict newer`：比较两个普通文件的已知修改时间，同时间选源端；删除冲突保留仍存在的一端。双方存在时，目录或未知时间会终止。单向不会反写源端。
 - `--conflict both`：仅用于 `bisync`。文件冲突保留源版本在原路径，目标版本另存到两端 `.conflict` 副本；类型冲突保留目录、另存文件；删除冲突恢复仍存在的版本。预演显示副本的实际目标路径。
 - `--state FILE`：本地 JSON 状态文件。父目录须存在，更新时原子替换文件，权限为 `0600`。
+
+跨存储重复同步时，从第一轮起使用同一个 `--state` 文件，分别记录两端的修改时间。
 
 状态保存元数据及有顺序的端点标识，配置内容只保存摘要；更换名称、配置（含凭证）或目录后，旧状态会被拒绝，须使用独立状态文件。不要把状态文件放在同步目录内，也不要对同一同步对或状态文件并发运行命令。状态格式为命令专用外壳，不是裸 `syncer.State`。复制、删除、冲突和部分成功保存遵循 [同步指南](syncer.md)。
 

@@ -23,12 +23,12 @@ return syncer.Sync(ctx, source, target)
 ```go
 option := syncer.Option{
 	Skipper: func(info syncer.FileInfo) bool {
-		return info.Path() == "/cache" || strings.HasSuffix(info.Path(), ".tmp")
+		return info.Path() == "cache" || strings.HasSuffix(info.Path(), ".tmp")
 	},
 }
 ```
 
-需要导入 `strings`。回调在每端扫描过程中、读取文件计算哈希之前同步执行，此时 `Hash()` 为空；不接收根目录 `/`，路径是传入 FS 内的绝对路径。命中的目录不再遍历，后代不调用回调。历史条目不传给回调。本次扫描命中的路径及被过滤目录遮蔽的后代保留旧基线；两端均确认不存在且未被过滤范围覆盖的历史路径正常清理。回调不得修改文件系统或元数据。
+需要导入 `strings`。回调在每端扫描过程中、读取文件计算哈希之前同步执行，此时 `Hash()` 为空；不接收根目录 `/`，路径相对于同步根目录。命中的目录不再遍历，后代不调用回调。历史条目不传给回调。本次扫描命中的路径及被过滤目录遮蔽的后代保留旧基线；两端均确认不存在且未被过滤范围覆盖的历史路径正常清理。回调不得修改文件系统或元数据。
 
 任一端命中就跳过两端同路径及其后代，保留旧元数据，不产生冲突回调和任务事件。若删除或类型替换父目录会影响被过滤的后代，则跳过该父目录的整棵子树操作。新目录可以创建并同步未被过滤的子项。nil 表示不过滤。
 
@@ -99,7 +99,7 @@ option := syncer.Option{
     MaxDeletePercent: 20,
     OnConflict: syncer.PreferSrc(),
     OnEvent: func(notification syncer.Event) {
-        if event, ok := notification.(syncer.SyncEvent); ok {
+        if event, ok := notification.(syncer.TaskEvent); ok {
             log.Printf("%s %s %s", event.Status, event.Op, event.FileInfo.Path())
         }
     },
@@ -195,9 +195,9 @@ option := syncer.Option{
 ```go
 handler := func(notification syncer.Event) {
     switch event := notification.(type) {
-    case syncer.PhaseEvent:
-        log.Printf("phase=%s status=%s err=%v", event.Phase, event.Status, event.Err)
     case syncer.SyncEvent:
+        log.Printf("phase=%s status=%s err=%v", event.Phase, event.Status, event.Err)
+    case syncer.TaskEvent:
         log.Printf("%s %s %s reverse=%t new_path=%s err=%v",
             event.FileInfo.Path(), event.Op, event.Status,
             event.Reverse, event.NewPath, event.Err)
@@ -216,7 +216,7 @@ OnEvent: func(event syncer.Event) {
 },
 ```
 
-`PhaseEvent` 表示整个同步过程的阶段，包含 `Phase`、`Status`、`Err`。
+`SyncEvent` 表示整个同步过程的阶段，包含 `Phase`、`Status`、`Err`。
 
 | Phase | 过程 |
 | --- | --- |
@@ -231,7 +231,7 @@ OnEvent: func(event syncer.Event) {
 
 `Op` 包括 `OpCopy`、`OpRename`、`OpMkdir`、`OpRemove`、`OpRmdir`。
 
-`SyncEvent.FileInfo` 描述复制的读取端、待创建目录，或重命名、删除的对象。`Reverse` 为 false 表示写入原始目标端，为 true 表示写入原始源端；重命名事件的 `NewPath` 给出目标路径。路径为传入文件系统内的绝对路径；快照可保留，访问不产生额外 I/O。
+`TaskEvent.FileInfo` 描述复制的读取端、待创建目录，或重命名、删除的对象。`Reverse` 为 false 表示写入原始目标端，为 true 表示写入原始源端；重命名事件的 `NewPath` 给出目标路径。路径相对于同步根目录；快照可保留，访问不产生额外 I/O。
 
 尝试执行时发送 `StatusStarted`，重试处理结束后发送一次 `StatusSucceeded`、`StatusFailed` 或 `StatusSkipped`；依赖被阻塞的任务只发送跳过。失败事件带 `Err`，忽略的原始错误由 `OnError` 获取。
 
@@ -282,7 +282,7 @@ option := syncer.Option{
 
 先将保留版本重命名为同目录下的备份，随后在复制阶段同步备份和原路径，两次复制可以并发执行。重命名失败（包括被 `OnError` 忽略）会阻止该冲突路径的后续操作。备份复制失败时，本端备份仍保留，原路径可能已同步；忽略该复制错误不会阻止原路径同步。已完成操作在结束时保存状态。重命名需要驱动支持 `Rename`，不支持时返回 `ErrNotSupport`。复制失败可能留下半文件，整个流程不提供事务回滚。
 
-预演会列出重命名和复制操作。`SyncEvent`、`ProgressEvent` 的 `FileInfo` 描述当前任务的对象，备份复制描述重命名后的文件和备份路径；重命名事件的 `NewPath` 给出重命名后的绝对路径。`Reverse` 表示写入端。`OpRename` 不发送进度事件，跨端复制报告进度并支持操作重试。重命名不计入删除限制。
+预演会列出重命名和复制操作。`TaskEvent`、`ProgressEvent` 的 `FileInfo` 描述当前任务的对象，备份复制描述重命名后的文件和备份路径；重命名事件的 `NewPath` 给出相对于同步根目录的重命名目标路径。`Reverse` 表示写入端。`OpRename` 不发送进度事件，跨端复制报告进度并支持操作重试。重命名不计入删除限制。
 
 该策略仅适用于 `ModeTwoWay`；单向 `Sync` 遇到该冲突决策时在写入前拒绝，不会反写源端。
 

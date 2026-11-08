@@ -474,7 +474,7 @@ func TestScanExcludesFilteredPaths(t *testing.T) {
 		algorithm: crypto.SHA256,
 		FS:        observed,
 		option: Option{Skipper: func(info FileInfo) bool {
-			return info.Path() == "/excluded" || info.Path() == "/excluded-file"
+			return info.Path() == "excluded" || info.Path() == "excluded-file"
 		}},
 	}
 	tree, err := fsys.scan(context.Background(), nil)
@@ -526,7 +526,7 @@ func TestEntryHashIsLazyAndCached(t *testing.T) {
 			}
 			scanned := tree.get("file")
 			snapshot := scanned.FileInfo()
-			if snapshot.Path() != "/file" || snapshot.Hash() != "" || observed.reads != 0 {
+			if snapshot.Path() != "file" || snapshot.Hash() != "" || observed.reads != 0 {
 				t.Fatal("scan or snapshot capture fetched a hash")
 			}
 			observed.planning = true

@@ -120,7 +120,7 @@ func TestStateCleansHistoryAfterBothSidesReplaceDirectory(t *testing.T) {
 			tasks := 0
 			onEvent := taskEvents(func(event syncer.Event) {
 				switch value := event.(type) {
-				case syncer.SyncEvent:
+				case syncer.TaskEvent:
 					if value.Status == syncer.StatusStarted {
 						tasks++
 					}
@@ -176,7 +176,7 @@ func TestStateCleansHistoryAfterBothSidesReplaceDirectory(t *testing.T) {
 
 func TestCancellationSavesConfirmedResults(t *testing.T) {
 	for _, mode := range []string{"sync", "bisync", "reverse"} {
-		for _, stop := range []string{"/a", "/b"} {
+		for _, stop := range []string{"a", "b"} {
 			for _, failSave := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/stop=%s/save-fails=%t", mode, stop, failSave), func(t *testing.T) {
 					src, dst, srcDir, dstDir := syncPair(t)
@@ -207,7 +207,7 @@ func TestCancellationSavesConfirmedResults(t *testing.T) {
 					err := run(ctx, taskEvents(func(notification syncer.Event) {
 						var event taskEventSnapshot
 						switch value := notification.(type) {
-						case syncer.SyncEvent:
+						case syncer.TaskEvent:
 							event = snapshotTaskEvent(value)
 						default:
 							return
@@ -232,7 +232,7 @@ func TestCancellationSavesConfirmedResults(t *testing.T) {
 					if err != nil || state == nil || !state.Valid() || state.Source["a"] == nil || state.Target["a"] == nil {
 						t.Fatalf("invalid checkpoint: %+v, %v", state, err)
 					}
-					if stop == "/a" {
+					if stop == "a" {
 						wantSyncAbsent(t, dstDir, "b")
 						if state.Source["b"] != nil || state.Target["b"] != nil {
 							t.Fatal("unexecuted file was confirmed")
@@ -245,12 +245,12 @@ func TestCancellationSavesConfirmedResults(t *testing.T) {
 					if err := run(context.Background(), taskEvents(func(notification syncer.Event) {
 						var event taskEventSnapshot
 						switch value := notification.(type) {
-						case syncer.SyncEvent:
+						case syncer.TaskEvent:
 							event = snapshotTaskEvent(value)
 						default:
 							return
 						}
-						if event.Path == "/a" || stop == "/b" {
+						if event.Path == "a" || stop == "b" {
 							t.Fatalf("confirmed file executed again: %+v", event)
 						}
 					})); err != nil {
@@ -297,7 +297,7 @@ func TestCancellationSavesPartialReplacement(t *testing.T) {
 				ctx, cancel := context.WithCancel(context.Background())
 				defer cancel()
 				option.OnEvent = taskEvents(func(notification syncer.Event) {
-					if event, ok := notification.(syncer.SyncEvent); ok && event.Op == stop && event.Status == syncer.StatusSucceeded {
+					if event, ok := notification.(syncer.TaskEvent); ok && event.Op == stop && event.Status == syncer.StatusSucceeded {
 						cancel()
 					}
 				})
@@ -338,7 +338,7 @@ func TestCancellationDoesNotConfirmActiveCopy(t *testing.T) {
 		Mode:       syncer.ModeTwoWay,
 		StateStore: store,
 		OnEvent: taskEvents(func(notification syncer.Event) {
-			if event, ok := notification.(syncer.ProgressEvent); ok && event.FileInfo.Path() == "/b" && event.Written > 0 {
+			if event, ok := notification.(syncer.ProgressEvent); ok && event.FileInfo.Path() == "b" && event.Written > 0 {
 				cancel()
 			}
 		}),
@@ -376,7 +376,7 @@ func TestCancellationSavesLogicalDeletion(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			option.OnEvent = taskEvents(func(notification syncer.Event) {
-				if event, ok := notification.(syncer.SyncEvent); ok && event.Status == syncer.StatusSucceeded {
+				if event, ok := notification.(syncer.TaskEvent); ok && event.Status == syncer.StatusSucceeded {
 					cancel()
 				}
 			})

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,23 +13,74 @@ import (
 	"github.com/honmaple/cloudfs/syncer"
 )
 
+func TestSyncLogs(t *testing.T) {
+	for _, mode := range []string{"sync", "bisync"} {
+		t.Run(mode, func(t *testing.T) {
+			config, left, right := namedPair(t)
+			state := filepath.Join(t.TempDir(), "state.json")
+			if err := os.WriteFile(filepath.Join(left, "file"), []byte("content"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(right, "reverse"), []byte("target"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			var stdout, stderr bytes.Buffer
+			args := []string{"cloudfs", "--config", config, mode, "--state", state, "left:/", "right:/"}
+			if err := run(context.Background(), args, nil, &stdout, &stderr); err != nil {
+				t.Fatal(err)
+			}
+			if stderr.Len() != 0 {
+				t.Fatalf("unexpected stderr: %q", stderr.String())
+			}
+			out := stdout.String()
+			for _, line := range []string{
+				"phase=scan status=started",
+				`op=copy status=succeeded path="file" reverse=false`,
+				"phase=finish status=succeeded",
+			} {
+				if !strings.Contains(out, line) {
+					t.Fatalf("missing %q in stdout: %s", line, out)
+				}
+			}
+			if mode == "bisync" && !strings.Contains(out, `op=copy status=succeeded path="reverse" reverse=true`) {
+				t.Fatalf("missing reverse copy in stdout: %s", out)
+			}
+		})
+	}
+}
+
 func TestSyncPreview(t *testing.T) {
 	for _, mode := range []string{"sync", "bisync"} {
 		t.Run(mode, func(t *testing.T) {
 			config, left, right := namedPair(t)
 			state := filepath.Join(t.TempDir(), "state.json")
+			args := []string{"cloudfs", "--config", config, mode, "--dry-run", "--state", state, "left:/", "right:/"}
+			var stdout, stderr bytes.Buffer
+			if err := run(context.Background(), args, nil, &stdout, &stderr); err != nil {
+				t.Fatal(err)
+			}
+			if out := stdout.String(); !strings.Contains(out, "phase=execute status=succeeded") || strings.Contains(out, "status=planned") || stderr.Len() != 0 {
+				t.Fatalf("empty preview: stdout=%q stderr=%q", stdout.String(), stderr.String())
+			}
+			stdout.Reset()
 			if err := os.WriteFile(filepath.Join(left, "a"), []byte("source"), 0600); err != nil {
 				t.Fatal(err)
 			}
 			if err := os.WriteFile(filepath.Join(right, "b"), []byte("target"), 0600); err != nil {
 				t.Fatal(err)
 			}
-			out, err := cliRun(config, mode, "--dry-run", "--state", state, "left:/", "right:/")
-			if err != nil || !strings.Contains(out, "copy target /a\n") {
-				t.Fatalf("preview: %q, %v", out, err)
+			if err := run(context.Background(), args, nil, &stdout, &stderr); err != nil {
+				t.Fatal(err)
 			}
-			if mode == "bisync" && !strings.Contains(out, "copy source /b\n") {
+			out := stdout.String()
+			if !strings.Contains(out, `op=copy status=planned path="a" reverse=false`) {
+				t.Fatalf("preview: %q", out)
+			}
+			if mode == "bisync" && !strings.Contains(out, `op=copy status=planned path="b" reverse=true`) {
 				t.Fatalf("reverse preview: %q", out)
+			}
+			if !strings.Contains(out, "phase=plan status=started") || !strings.Contains(out, "phase=execute status=succeeded") || stderr.Len() != 0 {
+				t.Fatalf("preview status: stdout=%q stderr=%q", out, stderr.String())
 			}
 			for _, path := range []string{state, filepath.Join(right, "a"), filepath.Join(left, "b")} {
 				if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
@@ -106,7 +159,7 @@ func TestBiSyncKeepBoth(t *testing.T) {
 		t.Fatalf("one-way keep-both: %v", err)
 	}
 	preview := append(append([]string(nil), args...), "--dry-run", "left:/", "right:/")
-	if out, err := cliRun(config, preview...); err != nil || !strings.Contains(out, "copy source /file.conflict") || !strings.Contains(out, "rename target /file -> /file.conflict") {
+	if out, err := cliRun(config, preview...); err != nil || !strings.Contains(out, `op=copy status=planned path="file.conflict" reverse=true`) || !strings.Contains(out, `op=rename status=planned path="file" reverse=false new_path="file.conflict"`) {
 		t.Fatalf("preview: %q, %v", out, err)
 	}
 	if _, err := cliRun(config, append(args, "left:/", "right:/")...); err != nil {

@@ -91,13 +91,6 @@ type (
 	}
 )
 
-func (task *syncTask) absoluteNewPath() string {
-	if task.newPath == "" {
-		return ""
-	}
-	return "/" + task.newPath
-}
-
 // groupTasks orders preparation, writes, and final deletions for execution and preview.
 func (e *executor) groupTasks(tasks []syncTask) [][]syncTask {
 	var renames, replacements, mkdirs, copies, removes, rmdirs []syncTask
@@ -317,7 +310,7 @@ func (e *executor) copy(ctx context.Context, task *syncTask) (string, error) {
 	var progress func(int64)
 	if e.option.OnEvent != nil {
 		event := ProgressEvent{
-			FileInfo: task.record.FileInfo("/" + task.path),
+			FileInfo: task.record.FileInfo(task.path),
 			Reverse:  task.reverse,
 		}
 		progress = func(written int64) {
@@ -354,12 +347,12 @@ func (e *executor) notify(task *syncTask, status Status, err error) {
 	if status == StatusSkipped {
 		err = nil
 	}
-	e.option.OnEvent(SyncEvent{
-		FileInfo: task.record.FileInfo("/" + task.path),
+	e.option.OnEvent(TaskEvent{
+		FileInfo: task.record.FileInfo(task.path),
 		Op:       task.op,
 		Status:   status,
 		Reverse:  task.reverse,
-		NewPath:  task.absoluteNewPath(),
+		NewPath:  task.newPath,
 		Err:      err,
 	})
 }
@@ -374,10 +367,10 @@ func (e *executor) handleError(ctx context.Context, task *syncTask, fn func(cont
 			return err
 		}
 		failure := FileError{
-			FileInfo: task.record.FileInfo("/" + task.path),
+			FileInfo: task.record.FileInfo(task.path),
 			Op:       task.op,
 			Reverse:  task.reverse,
-			NewPath:  task.absoluteNewPath(),
+			NewPath:  task.newPath,
 			Attempt:  retries + 1,
 			Err:      err,
 		}

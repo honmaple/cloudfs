@@ -120,7 +120,7 @@ func testBiSyncRandomChanges(t *testing.T, seed int64, checksum, faults bool) {
 				if info == nil {
 					info = conflict.Target
 				}
-				if info.Path() == "/"+independent {
+				if info.Path() == independent {
 					if policy == syncer.ConflictPreferSrc {
 						return syncer.ConflictPreferDst, nil
 					}

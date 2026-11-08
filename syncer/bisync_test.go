@@ -289,7 +289,7 @@ func TestBiSyncConflictSkipPreservesSubtreeMetadata(t *testing.T) {
 	if err := syncer.Sync(ctx, src, dst, option); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(conflicts, []string{"/z"}) {
+	if !reflect.DeepEqual(conflicts, []string{"z"}) {
 		t.Fatalf("conflicts=%v", conflicts)
 	}
 	after, err := store.Load(ctx)
@@ -340,7 +340,7 @@ func TestBiSyncCustomConflictHandler(t *testing.T) {
 			info = conflict.Target
 		}
 		called[info.Path()] = true
-		if info.Path() == "/deleted" {
+		if info.Path() == "deleted" {
 			if conflict.Source != nil || conflict.Target == nil {
 				t.Fatalf("invalid deletion: %+v", conflict)
 			}
@@ -500,7 +500,7 @@ func TestBiSyncOnErrorRetriesBothDirectionsWithContext(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(calls, map[string]int{"/left": 1, "/right": 1}) {
+	if !reflect.DeepEqual(calls, map[string]int{"left": 1, "right": 1}) {
 		t.Fatalf("callbacks=%v", calls)
 	}
 	if source.openCtx != ctx || target.openCtx != ctx || source.createCtx != ctx || target.createCtx != ctx {
@@ -692,7 +692,7 @@ func TestBiSyncIgnoredCopyRetainsPreviousMetadata(t *testing.T) {
 			fault := &pathReadFault{FS: src, path: "/z-failed"}
 			option.OnError = func(ctx context.Context, failure syncer.FileError) (syncer.ErrorPolicy, error) {
 				path := failure.FileInfo.Path()
-				if path != "/z-failed" {
+				if path != "z-failed" {
 					t.Fatalf("unexpected failure: %s: %v", path, failure.Err)
 				}
 				return syncer.ErrorSkip, nil

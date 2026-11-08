@@ -409,12 +409,12 @@ err = syncer.Sync(ctx, source, target) // The same wrappers work with either mod
 ```go
 option := syncer.Option{
 	Skipper: func(info syncer.FileInfo) bool {
-		return info.Path() == "/cache" || strings.HasSuffix(info.Path(), ".tmp")
+		return info.Path() == "cache" || strings.HasSuffix(info.Path(), ".tmp")
 	},
 }
 ```
 
-Import `strings` for this example. The callback runs synchronously during each scan, before reading file contents for checksums; `Hash()` is empty for these scan snapshots. The root `/` is not passed to the callback. Paths are absolute within the supplied FS. Excluded directories are not traversed and their descendants are not passed to the callback. The callback receives only the current scan snapshots. Paths excluded by the current scans, including descendants hidden by an excluded directory, retain their previous baseline. Historical paths confirmed absent from both scans are removed unless covered by an exclusion. Do not mutate filesystems or metadata in the callback.
+Import `strings` for this example. The callback runs synchronously during each scan, before reading file contents for checksums; `Hash()` is empty for these scan snapshots. The root `/` is not passed to the callback. Paths are relative to the synchronization root. Excluded directories are not traversed and their descendants are not passed to the callback. The callback receives only the current scan snapshots. Paths excluded by the current scans, including descendants hidden by an excluded directory, retain their previous baseline. Historical paths confirmed absent from both scans are removed unless covered by an exclusion. Do not mutate filesystems or metadata in the callback.
 
 A match on either side excludes that path and descendants on both sides, preserves previous metadata, and emits neither conflict callbacks nor task events. An ancestor deletion or type replacement that would affect an excluded child is skipped for the whole subtree. New directories can still be created with their included children. Nil disables filtering.
 
@@ -485,7 +485,7 @@ option := syncer.Option{
     MaxDeletePercent: 20,
     OnConflict: syncer.PreferSrc(),
     OnEvent: func(notification syncer.Event) {
-        if event, ok := notification.(syncer.SyncEvent); ok {
+        if event, ok := notification.(syncer.TaskEvent); ok {
             log.Printf("%s %s %s", event.Status, event.Op, event.FileInfo.Path())
         }
     },
@@ -642,9 +642,9 @@ Both synchronization modes report phase, task, and copy progress events through 
 option := syncer.Option{
     OnEvent: func(notification syncer.Event) {
         switch event := notification.(type) {
-        case syncer.PhaseEvent:
-            log.Printf("phase=%s status=%s err=%v", event.Phase, event.Status, event.Err)
         case syncer.SyncEvent:
+            log.Printf("phase=%s status=%s err=%v", event.Phase, event.Status, event.Err)
+        case syncer.TaskEvent:
             log.Printf("path=%s op=%s status=%s reverse=%t new_path=%s err=%v",
                 event.FileInfo.Path(), event.Op, event.Status,
                 event.Reverse, event.NewPath, event.Err)
@@ -664,7 +664,7 @@ OnEvent: func(event syncer.Event) {
 },
 ```
 
-`PhaseEvent` reports the synchronization lifecycle through `Phase`, `Status`, and `Err`.
+`SyncEvent` reports the synchronization lifecycle through `Phase`, `Status`, and `Err`.
 
 | Phase | Activity |
 | --- | --- |
@@ -679,7 +679,7 @@ Each phase emits `StatusStarted`, followed by `StatusSucceeded` or `StatusFailed
 
 `Op` includes `OpCopy`, `OpRename`, `OpMkdir`, `OpRemove`, and `OpRmdir`.
 
-`SyncEvent.FileInfo` describes the copied source, directory to create, or object being renamed or removed. `Reverse` is false for writes to the original target and true for writes to the original source. `NewPath` gives the destination path for renames. Paths are absolute within the supplied filesystems. Snapshots can be retained and their accessors perform no filesystem I/O.
+`TaskEvent.FileInfo` describes the copied source, directory to create, or object being renamed or removed. `Reverse` is false for writes to the original target and true for writes to the original source. `NewPath` gives the destination path for renames. Paths are relative to the synchronization root. Snapshots can be retained and their accessors perform no filesystem I/O.
 
 An attempted task reports `StatusStarted` followed by `StatusSucceeded`, `StatusFailed`, or `StatusSkipped` after retries. Tasks blocked by ignored prerequisites report only skipped. Failed events carry `Err`; skipped operation errors are available to `OnError`.
 
@@ -771,7 +771,7 @@ Copies stay in the same parent directory: `report.txt` becomes `report.conflict.
 
 The preserved version is renamed to a sibling backup first. The backup and original path are then synchronized in the copy stage and may copy concurrently. A failed or ignored rename blocks later operations for that conflict. If the backup copy fails, its local backup remains and the original path may already have synchronized; ignoring that copy error does not block the original copy. Completed operations are recorded when state is saved at the end. The driver must support `Rename`; otherwise it returns `ErrNotSupport`. Copies may leave partial files on failure; the sequence does not provide transactional rollback.
 
-Dry runs list rename and copy operations. `SyncEvent` and `ProgressEvent` expose `FileInfo` for the current task object. Backup copies describe the renamed file at the backup path. `NewPath` gives the absolute destination for renames. `Reverse` selects the receiving side. `OpRename` emits no progress events. Cross-side copies report progress and support operation retries. Renames do not count toward deletion limits.
+Dry runs list rename and copy operations. `TaskEvent` and `ProgressEvent` expose `FileInfo` for the current task object. Backup copies describe the renamed file at the backup path. `NewPath` gives the destination for renames relative to the synchronization root. `Reverse` selects the receiving side. `OpRename` emits no progress events. Cross-side copies report progress and support operation retries. Renames do not count toward deletion limits.
 
 This policy is supported only by `ModeTwoWay`. One-way `Sync` rejects this decision when a conflict is found, before writes, and never writes back to its source.
 

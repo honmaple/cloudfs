@@ -52,7 +52,7 @@ func TestDryRunMatchesExecution(t *testing.T) {
 			handler := taskEvents(func(event syncer.Event) {
 				var snapshot taskEventSnapshot
 				switch event := event.(type) {
-				case syncer.SyncEvent:
+				case syncer.TaskEvent:
 					snapshot = snapshotTaskEvent(event)
 				default:
 					t.Fatalf("unexpected preview event: %T", event)
@@ -79,7 +79,7 @@ func TestDryRunMatchesExecution(t *testing.T) {
 			if err := run(src, dst, false, taskEvents(func(event syncer.Event) {
 				var snapshot taskEventSnapshot
 				switch event := event.(type) {
-				case syncer.SyncEvent:
+				case syncer.TaskEvent:
 					snapshot = snapshotTaskEvent(event)
 				default:
 					return
@@ -289,7 +289,7 @@ func TestDeleteLimitIgnoresFilteredRemovals(t *testing.T) {
 			putSyncFile(t, srcDir, "new", "new")
 			left, right := &previewReadOnlyFS{FS: src}, &previewReadOnlyFS{FS: dst}
 			skipper := func(info syncer.FileInfo) bool {
-				return info.Path() == "/excluded"
+				return info.Path() == "excluded"
 			}
 			var err error
 			if bisync {

@@ -21,7 +21,7 @@ import (
 )
 
 // FileInfo is a read-only file or directory snapshot supplied to callbacks.
-// Path is absolute within the supplied FS. Accessors perform no filesystem I/O.
+// Path is relative to the synchronization root. Accessors perform no filesystem I/O.
 // Copy and mkdir callbacks describe the source; removal callbacks describe the
 // entry being removed. The snapshot does not change after execution or retries.
 type FileInfo interface {
@@ -107,7 +107,6 @@ func (e *entry) FileInfo() FileInfo {
 		return nil
 	}
 	snapshot := *e
-	snapshot.path = "/" + e.path
 	snapshot.fsys, snapshot.record = nil, nil
 	return &snapshot
 }

@@ -121,6 +121,8 @@ Configuration uses top-level driver names only. Unqualified paths always refer t
 
 `sync` uses `ModeOneWay`; `bisync` uses `ModeTwoWay` and requires `--state`.
 
+Sync commands print events to stdout. File paths in those events are relative to the sync roots.
+
 ```sh
 cloudfs --config drivers.json sync --conflict src name1:/documents name2:/backup
 cloudfs --config drivers.json sync --delete --state ./sync-state.json name1:/documents name2:/backup
@@ -130,7 +132,7 @@ cloudfs --config drivers.json bisync --state ./bisync-state.json name1:/document
 `sync` synchronizes directory contents, preserving target-only files unless `--delete` is set. Optional `--state` records metadata. `bisync` requires `--state` and propagates changes and deletions in both directions. Both directories must exist. Place subcommand flags before paths:
 
 - `--concurrency N`: maximum parallel copies and final file removals (default 1; 0 is also serial). Values above 1 require concurrency-safe drivers and middleware. Renames, type-replacement preparation, and directory creation run first; copies precede final file and directory removals. Active tasks finish before an error is returned.
-- `--dry-run`: preview operations as `operation source|target path` without changing files or state.
+- `--dry-run`: print phase events and file operations with `status=planned` without changing files or state.
 - `--max-delete N`: limit combined removed entries, including recursive directory contents and type replacements. 0 is unlimited.
 - `--max-delete-percent N`: limit removals separately for each receiving side (0–100; 0 disables). Exceeding either deletion limit stops the run before writes, including dry runs. Ordinary file overwrites do not count as deletions.
 - `--checksum`: compare file contents by hash. Reuses saved hashes when size and modification time match.
@@ -138,6 +140,8 @@ cloudfs --config drivers.json bisync --state ./bisync-state.json name1:/document
 - `--conflict newer`: compare known modification times for two regular files, choosing source on ties; deletion conflicts restore the survivor. A directory or unknown time when both entries exist aborts the run. One-way sync never writes back.
 - `--conflict both`: supported only by `bisync`. File conflicts keep the source at the original path and preserve the target in `.conflict` copies on both sides. Type conflicts keep the directory and preserve the file; deletion conflicts restore the survivor. Dry runs show actual copy destinations.
 - `--state FILE`: local JSON state file. The parent directory must exist. Updates replace the file atomically with mode `0600`.
+
+For repeated syncs across backends, use the same `--state` file from the first run to record each side's modification times.
 
 State binds the ordered endpoints and a digest of configuration, without storing raw credentials. Changing names, options (including credentials), or directories requires a separate state file. Keep state outside synchronized directories and exclude concurrent commands for the same filesystem pair or state file. The file wraps metadata in a command-specific envelope rather than storing bare `syncer.State`. See the [synchronization guide](syncer.md) for conflicts and partial success behavior.
 
