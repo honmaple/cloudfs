@@ -190,7 +190,7 @@ func (fsys *syncFS) scan(ctx context.Context, records map[string]*Record) (*sync
 			return fmt.Errorf("sync: invalid path %q", path)
 		}
 		if entries[relative] != nil || skipped[relative] {
-			return fmt.Errorf("sync: duplicate path %s", path)
+			return fmt.Errorf("sync: duplicate path %s", relative)
 		}
 		e := &entry{path: relative, isDir: info.IsDir(), fsys: fsys, record: records[relative]}
 		if !e.isDir {

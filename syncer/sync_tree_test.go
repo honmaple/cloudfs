@@ -50,7 +50,7 @@ func TestSyncPreservesSnapshotsDuringExecution(t *testing.T) {
 			Target:        make(map[string]*Record),
 		},
 		srcFS: &syncFS{algorithm: crypto.SHA256, FS: src}, dstFS: &syncFS{algorithm: crypto.SHA256, FS: dst},
-		option: Option{Delete: true, StateStore: store, OnConflict: PreferSrc()},
+		option: Option{Mode: ModeMirror, StateStore: store, OnConflict: PreferSrc()},
 	}
 	if err := worker.init(ctx); err != nil {
 		t.Fatal(err)

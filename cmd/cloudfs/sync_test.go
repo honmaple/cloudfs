@@ -114,7 +114,7 @@ func TestSyncDeleteGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, limit := range [][]string{{"--max-delete", "1"}, {"--max-delete-percent", "99"}} {
-		args := append([]string{"sync", "--delete"}, limit...)
+		args := append([]string{"sync", "--mirror"}, limit...)
 		args = append(args, "left:/", "right:/")
 		out, err := cliRun(config, args...)
 		if !errors.Is(err, syncer.ErrTooManyDeletes) {

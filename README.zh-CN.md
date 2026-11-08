@@ -252,7 +252,7 @@ return err
 
 ## 同步
 
-统一通过 `Sync` 和 `Option.Mode` 选择模式：`ModeOneWay` 为默认单向同步；`ModeTwoWay` 传播双方变化及删除，必须提供 `StateStore`。
+通过 `Sync` 和 `Option.Mode` 选择模式。`ModeCopy` 是默认的单向同步，保留目标端独有条目。`ModeMirror` 从源端复制到目标端，复制后删除目标端独有条目。`ModeTwoWay` 双向传播变化及删除，必须提供 `StateStore`。
 
 导入 `github.com/honmaple/cloudfs/syncer`。`Sync` 使用传入文件系统的 `/`，两端根目录须已存在。同步子目录时先通过 `middleware.PrefixFS` 包装：
 
@@ -307,7 +307,7 @@ option := syncer.Option{
 | `KeepBoth()` | 双向同步保留双方版本，详见下文。 |
 | `PreferNewer()` | 删除冲突保留仍存在的一端；两个普通文件按已知修改时间选择较新者，同时间选源端。 |
 
-`PreferNewer()` 只比较提供的修改时间，不读取文件；两端时间须可比较。双方均存在时，遇到目录或任一时间未知会选择终止，因为目录快照不保存修改时间。单向同步选择较新的目标时保留目标，不反向复制。此处理函数只作用于交给回调的冲突，单向 `Delete` 仍控制目标独有条目的删除。
+`PreferNewer()` 只比较提供的修改时间，不读取文件；两端时间须可比较。双方均存在时，遇到目录或任一时间未知会选择终止，因为目录快照不保存修改时间。单向同步选择较新的目标时保留目标，不反向复制。此处理函数只作用于交给回调的冲突，目标独有条目由 `ModeMirror` 清理。
 
 自定义回调仍返回 `ConflictPolicy` 枚举和错误；可按路径选择 `ConflictAbort`、`ConflictSkip`、`ConflictPreferSrc`、`ConflictPreferDst`、`ConflictKeepBoth`，或调用内置处理函数。回调错误保留原始文本，在任何写入前终止。
 
@@ -341,12 +341,12 @@ option := syncer.Option{
 
 ### 预演与删除保护
 
-`Option` 均支持 `DryRun`、`MaxDelete`、`MaxDeletePercent`：
+`Option` 支持 `DryRun`、`MaxDelete`、`MaxDeletePercent`：
 
 ```go
 option := syncer.Option{
     DryRun:           true,
-    Delete:           true,
+    Mode:             syncer.ModeMirror,
     MaxDelete:        100,
     MaxDeletePercent: 20,
     OnConflict: syncer.PreferSrc(),
@@ -360,7 +360,7 @@ option := syncer.Option{
 
 预演正常加载状态、扫描和解决冲突，通过 `OnEvent` 为每个计划操作发送一次 `StatusPlanned`，不执行写入、不保存状态、不发送复制进度或任务成功事件，阶段事件仍正常发送。哈希比较和回调照常执行，因此调用方应避免回调产生写入副作用。双向预演仍要求 `StateStore`；单向预演仅在提供存储时加载状态。预演不保留可供稍后执行的计划；实际同步会重新扫描。
 
-`MaxDelete` 限制两端合计显式删除的条目数；文件和目录各计一项，递归删除包含全部已扫描后代，同一端同一路径只计一次。类型替换造成的删除也计入，即使单向没有开启 `Delete`。普通文件覆盖不计入删除数。
+`MaxDelete` 限制两端合计显式删除的条目数；文件和目录各计一项，递归删除包含全部已扫描后代，同一端同一路径只计一次。各模式下类型替换造成的删除也计入。普通文件覆盖不计入删除数。
 
 `MaxDeletePercent` 按每个接收端分别检查：计划删除条目数除以该端当前扫描条目数，根目录不计入。两个限制同时设置时必须同时满足；达到限制允许执行，超过才拒绝。两项默认均为 0，表示禁用；数量不能为负，百分比范围为 0–100。
 
@@ -372,18 +372,18 @@ option := syncer.Option{
 
 复制中的检查失败进入 `OnError`，可返回 `ErrorSkip` 跳过，或返回错误终止。重试仍使用原扫描快照，源文件仍有变化时继续拒绝；下一次同步重新扫描。规划阶段获取哈希失败时直接停止规划，不进入 `OnError`。每次完整读取的复制尝试增加两次源端 `Stat`；规划阶段计算哈希不额外调用 `Stat`。比较元数据或复用历史哈希时，大小和时间均不变的修改仍可能漏检，调用方仍须排除并发写入。
 
-### 单向同步
+### 单向和镜像同步
 
 ```go
 err := syncer.Sync(ctx, src, dst, syncer.Option{
-	Delete:         true,
+	Mode:       syncer.ModeMirror,
 	OnConflict: syncer.PreferSrc(),
 
 	StateStore:     store,
 })
 ```
 
-默认保留目标端独有文件；`Delete` 开启后删除。默认冲突策略为 `Abort()`，已有文件内容或类型不一致时在写入前返回 `ErrSyncConflict`；显式设置 `OnConflict: syncer.PreferSrc()` 才覆盖目标。类型替换先删除目标冲突路径，再创建源子树，与 `Delete` 无关。目录只调用一次 `FS.Remove`，不产生逐个子项删除事件。
+`ModeCopy` 保留目标端独有条目，`ModeMirror` 在复制后清理这些条目。默认冲突策略为 `Abort()`，已有文件内容或类型不一致时在写入前返回 `ErrSyncConflict`；显式设置 `OnConflict: syncer.PreferSrc()` 才覆盖目标。两种模式处理类型替换时都会先删除目标冲突路径，再创建源子树。目录只调用一次 `FS.Remove`，不产生逐个子项删除事件。
 
 `PreferDst()` 和 `Skip()` 保留冲突子树及旧元数据，不反向写入源端。`OnConflict` 逐路径选择策略；回调错误会在写入前终止。
 

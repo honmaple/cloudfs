@@ -384,7 +384,7 @@ func init() {
 
 ## Synchronization
 
-Use `Sync` with `Option.Mode`: `ModeOneWay` is the default one-way mode. `ModeTwoWay` propagates changes and deletions in both directions and requires `StateStore`.
+Use `Sync` with `Option.Mode`. `ModeCopy` is the default and preserves target-only entries. `ModeMirror` copies from source to target and removes target-only entries after copying. `ModeTwoWay` propagates changes and deletions in both directions and requires `StateStore`.
 
 Import `github.com/honmaple/cloudfs/syncer` to synchronize `cloudfs.FS` instances.
 `Sync` uses `/` in each supplied filesystem. To synchronize
@@ -441,7 +441,7 @@ option := syncer.Option{
 | `KeepBoth()` | Preserve both versions in bidirectional sync, as described below. |
 | `PreferNewer()` | Restore the survivor in a deletion conflict; compare known times for two regular files, preferring the source on ties. |
 
-`PreferNewer()` compares supplied modification times without reading contents; the two sides' times must be comparable. When both entries exist, a directory or an unknown timestamp selects abort because directory snapshots do not retain modification times. In one-way sync, a newer target is preserved without copying back to the source. This handler affects only conflicts passed to it; one-way `Delete` still controls target-only entry removal.
+`PreferNewer()` compares supplied modification times without reading contents; the two sides' times must be comparable. When both entries exist, a directory or an unknown timestamp selects abort because directory snapshots do not retain modification times. In one-way sync, a newer target is preserved without copying back to the source. This handler affects only conflicts passed to it; `ModeMirror` controls target-only entry removal.
 
 Custom callbacks still return a `ConflictPolicy` and an error. They can select `ConflictAbort`, `ConflictSkip`, `ConflictPreferSrc`, `ConflictPreferDst`, or `ConflictKeepBoth` per path, or call a built-in handler. Callback errors retain their original text and stop the run before writes.
 
@@ -475,12 +475,12 @@ Filtering runs before hash reads. Dry runs perform needed reads but do not save 
 
 ### Dry Runs and Deletion Limits
 
-Both `Option` accept `DryRun`, `MaxDelete`, and `MaxDeletePercent`:
+`Option` supports `DryRun`, `MaxDelete`, and `MaxDeletePercent`:
 
 ```go
 option := syncer.Option{
     DryRun:           true,
-    Delete:           true,
+    Mode:             syncer.ModeMirror,
     MaxDelete:        100,
     MaxDeletePercent: 20,
     OnConflict: syncer.PreferSrc(),
@@ -494,7 +494,7 @@ option := syncer.Option{
 
 A dry run loads state, scans, and resolves conflicts normally. `OnEvent` receives one `StatusPlanned` per planned operation. It performs no writes or state saves and emits no copy progress or successful task events. Phase events are still emitted. Hash comparison performs the same reads as a real run, and callbacks still run; callers must avoid write side effects in callbacks. Bidirectional dry runs still require `StateStore`; one-way dry runs load state when a store is provided. No executable plan is retained: a real run scans again.
 
-`MaxDelete` limits the combined number of explicitly removed entries across both sides. Each file and directory counts once per side; recursive removals include all scanned descendants. Type replacements count even when one-way `Delete` is false. Ordinary file overwrites do not count as deletions.
+`MaxDelete` limits the combined number of explicitly removed entries across both sides. Each file and directory counts once per side; recursive removals include all scanned descendants. Type replacements count in every mode. Ordinary file overwrites do not count as deletions.
 
 `MaxDeletePercent` is checked separately for each receiving side against that side's current scanned entry count, excluding the root. Both limits must pass when enabled. Equality is allowed; only exceeding a limit fails. Both default to 0 (disabled). Counts cannot be negative; percentages must be in 0–100.
 
@@ -506,12 +506,12 @@ Before each copy attempt, the source's type, size, and modification time must ma
 
 During copying, `OnError` may skip the changed file with `ErrorSkip` or stop by returning the error. Retries retain the original snapshot and reject a still-changed source; a later sync scans again. Hash retrieval failures stop planning before writes and bypass `OnError`. Metadata checks add two source `Stat` calls per fully read copy attempt. Planning hash reads add no `Stat` calls. They add no content reads. Changes preserving size and time can escape detection when comparing metadata or reusing saved hashes. Callers must still exclude concurrent writers.
 
-### One-way synchronization
+### One-way and mirror synchronization
 
 ```go
 err := syncer.Sync(ctx, src, dst)
 err = syncer.Sync(ctx, src, dst, syncer.Option{
-    Delete: true, // Default: preserve destination-only entries.
+    Mode:       syncer.ModeMirror,
     OnConflict: syncer.PreferSrc(), // Explicitly overwrite differing target files.
 
     StateStore: store,
@@ -528,7 +528,7 @@ exist. Empty directories are included. Differing existing files and file/directo
 with `Abort()` as the default. It reports conflicts as
 `ErrSyncConflict` before writes. Set `OnConflict: syncer.PreferSrc()` to overwrite target files.
 `PreferSrc()` removes the conflicting target subtree and recreates it from
-source, even when `Delete` is false. Directory removal calls `FS.Remove` once
+source in both one-way modes. Directory removal calls `FS.Remove` once
 for the directory; descendants do not generate separate operations or events. `PreferDst()` and `Skip()` preserve
 both sides of that subtree and its previous metadata; `Sync` never writes back to
 source. `OnConflict` receives current and previous snapshots and selects the policy for each conflict. A callback error stops comparison before writes. The caller owns the filesystems; the library closes file streams.

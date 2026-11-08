@@ -250,7 +250,7 @@ func (e *executor) apply(ctx context.Context, task *syncTask) (*Record, error) {
 			return nil, err
 		}
 		if info.IsDir() || (task.record.Size >= 0 && info.Size() >= 0 && info.Size() != task.record.Size) {
-			return nil, fmt.Errorf("%w: invalid transfer result for /%s", ErrSyncConflict, task.path)
+			return nil, fmt.Errorf("%w: invalid transfer result for %s", ErrSyncConflict, task.path)
 		}
 		return &Record{Size: info.Size(), ModTime: info.ModTime().UTC(), Hash: copiedHash}, nil
 	case OpRename:

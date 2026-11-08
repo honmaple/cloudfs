@@ -101,8 +101,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 				ArgsUsage: "SOURCE DESTINATION",
 				Action:    commandAction(2, 2, syncAction),
 				Flags: append(syncFlags, &cli.BoolFlag{
-					Name:  "delete",
-					Usage: "Delete target-only entries",
+					Name:  "mirror",
+					Usage: "Mirror source to target and remove target-only entries",
 				}),
 			},
 			{

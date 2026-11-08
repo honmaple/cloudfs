@@ -458,7 +458,7 @@ func TestSyncStagesDeleteLast(t *testing.T) {
 	var planned, executed []taskEventSnapshot
 	option := syncer.Option{
 		Concurrency: 2,
-		Delete:      true,
+		Mode:        syncer.ModeMirror,
 		DryRun:      true,
 		OnEvent: taskEvents(func(notification syncer.Event) {
 			if event, ok := notification.(syncer.TaskEvent); ok {
@@ -504,7 +504,7 @@ func TestCopyFailureStopsFinalDeletions(t *testing.T) {
 		path: "/file",
 	}, syncer.Option{
 		Concurrency: 2,
-		Delete:      true,
+		Mode:        syncer.ModeMirror,
 	})
 	if !errors.Is(err, errSyncTest) {
 		t.Fatalf("got %v", err)

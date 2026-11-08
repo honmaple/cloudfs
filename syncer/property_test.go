@@ -40,7 +40,7 @@ func TestSyncRandomMirror(t *testing.T) {
 				store := &singleSyncStore{}
 				option := syncer.Option{
 					Checksum: checksum,
-					Delete:   true,
+					Mode:     syncer.ModeMirror,
 
 					StateStore: store,
 					OnConflict: syncer.PreferSrc(),

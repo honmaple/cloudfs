@@ -108,7 +108,7 @@ func TestSyncRejectsInvalidErrorPolicy(t *testing.T) {
 }
 
 func TestSyncMaxRetry(t *testing.T) {
-	for _, mode := range []syncer.Mode{syncer.ModeOneWay, syncer.ModeTwoWay} {
+	for _, mode := range []syncer.Mode{syncer.ModeCopy, syncer.ModeTwoWay} {
 		for _, limit := range []int{-1, 0, 1, 2} {
 			t.Run(fmt.Sprintf("mode=%d/limit=%d", mode, limit), func(t *testing.T) {
 				src, dst, srcDir, _ := syncPair(t)

@@ -17,20 +17,22 @@ import (
 	"github.com/honmaple/cloudfs"
 )
 
-// Mode selects the synchronization direction.
+// Mode selects how synchronization propagates changes and deletions.
 type Mode uint8
 
 const (
-	// ModeOneWay synchronizes source changes to the target.
-	ModeOneWay Mode = iota
+	// ModeCopy synchronizes source changes to the target and preserves target-only entries.
+	ModeCopy Mode = iota
+	// ModeMirror synchronizes source changes to the target and removes target-only entries.
+	ModeMirror
 	// ModeTwoWay propagates changes and deletions in both directions.
 	ModeTwoWay
 )
 
-// Option configures synchronization. The zero value uses ModeOneWay
+// Option configures synchronization. The zero value uses ModeCopy
 // and preserves destination-only entries.
 type Option struct {
-	// Mode defaults to ModeOneWay.
+	// Mode defaults to ModeCopy.
 	Mode Mode
 	// DryRun scans and plans normally, emitting StatusPlanned without writes or Save.
 	DryRun bool
@@ -45,7 +47,6 @@ type Option struct {
 	// MaxDeletePercent limits removals as a percentage of each receiving side's
 	// scanned entries, excluding the root. 0 disables the limit; valid range is 0–100.
 	MaxDeletePercent int
-	Delete           bool // Remove destination-only entries after copying.
 	// Checksum compares file contents using hashes. Saved hashes are reused
 	// when the file size and modification time match the historical record.
 	Checksum bool
@@ -73,7 +74,9 @@ func Sync(ctx context.Context, src, dst cloudfs.FS, options ...Option) error {
 	if len(options) == 1 {
 		opt = options[0]
 	}
-	if opt.Mode != ModeOneWay && opt.Mode != ModeTwoWay {
+	switch opt.Mode {
+	case ModeCopy, ModeMirror, ModeTwoWay:
+	default:
 		return fmt.Errorf("sync: invalid mode %d", opt.Mode)
 	}
 	if opt.OnConflict == nil {
@@ -270,7 +273,7 @@ func (s *syncer) run(ctx context.Context) error {
 	s.notifyPhase(PhasePlan, StatusStarted, nil)
 	var tasks []syncTask
 	switch s.option.Mode {
-	case ModeOneWay:
+	case ModeCopy, ModeMirror:
 		tasks, err = s.oneWayTasks(ctx)
 	case ModeTwoWay:
 		tasks, err = s.twoWayTasks(ctx)
@@ -353,6 +356,30 @@ func (s *syncer) oneWayTasks(ctx context.Context) ([]syncTask, error) {
 		}
 		switch policy {
 		case ConflictPreferSrc:
+			if dst != nil && src.IsDir() != dst.IsDir() {
+				op := OpRemove
+				if dst.IsDir() {
+					op = OpRmdir
+				}
+				tasks = append(tasks, syncTask{
+					op:      op,
+					path:    path,
+					record:  dst.toRecord(),
+					replace: true,
+					reverse: false,
+				})
+			}
+			op := OpCopy
+			if src.IsDir() {
+				op = OpMkdir
+			}
+			tasks = append(tasks, syncTask{
+				op:      op,
+				path:    path,
+				record:  src.toRecord(),
+				reverse: false,
+			})
+			return nil
 		case ConflictPreferDst, ConflictSkip:
 			s.skippedConflicts[path] = true
 			if src.IsDir() {
@@ -361,38 +388,14 @@ func (s *syncer) oneWayTasks(ctx context.Context) ([]syncTask, error) {
 			return nil
 		default:
 			if dst != nil && src.IsDir() != dst.IsDir() {
-				return fmt.Errorf("%w: /%s: file/directory mismatch", ErrSyncConflict, path)
+				return fmt.Errorf("%w: %s: file/directory mismatch", ErrSyncConflict, path)
 			}
-			return fmt.Errorf("%w: /%s", ErrSyncConflict, path)
+			return fmt.Errorf("%w: %s", ErrSyncConflict, path)
 		}
-		if dst != nil && src.IsDir() != dst.IsDir() {
-			op := OpRemove
-			if dst.IsDir() {
-				op = OpRmdir
-			}
-			tasks = append(tasks, syncTask{
-				op:      op,
-				path:    path,
-				record:  dst.toRecord(),
-				replace: true,
-				reverse: false,
-			})
-		}
-		op := OpCopy
-		if src.IsDir() {
-			op = OpMkdir
-		}
-		tasks = append(tasks, syncTask{
-			op:      op,
-			path:    path,
-			record:  src.toRecord(),
-			reverse: false,
-		})
-		return nil
 	}); err != nil {
 		return nil, err
 	}
-	if s.option.Delete {
+	if s.option.Mode == ModeMirror {
 		if err := s.dstTree.walk(func(path string, dst *entry) error {
 			if err := ctx.Err(); err != nil {
 				return err
@@ -595,9 +598,9 @@ func (s *syncer) twoWayTasks(ctx context.Context) ([]syncTask, error) {
 				}
 				return nil
 			case ConflictAbort:
-				return fmt.Errorf("%w: /%s", ErrSyncConflict, path)
+				return fmt.Errorf("%w: %s", ErrSyncConflict, path)
 			default:
-				return fmt.Errorf("sync: invalid conflict policy %d for /%s", policy, path)
+				return fmt.Errorf("sync: invalid conflict policy %d for %s", policy, path)
 			}
 
 			if dst != nil && (src == nil || src.IsDir() != dst.IsDir()) {
@@ -672,7 +675,7 @@ func (s *syncer) keepBothTasks(path string, src, dst *entry, taken map[string]bo
 		backupEntry := *file
 		backupEntry.path, backupEntry.hash = backup, ""
 		if s.option.Skipper(backupEntry.FileInfo()) {
-			return nil, ConflictAbort, fmt.Errorf("%w: conflict copy is filtered: /%s", ErrSyncConflict, backup)
+			return nil, ConflictAbort, fmt.Errorf("%w: conflict copy is filtered: %s", ErrSyncConflict, backup)
 		}
 	}
 	// These tasks share an owned snapshot, updated after the rename succeeds.

@@ -305,21 +305,21 @@ func TestChecksumDoesNotReadSkippedTypeConflict(t *testing.T) {
 }
 
 func TestChecksumDoesNotReadDestinationOnlyFiles(t *testing.T) {
-	for _, remove := range []bool{false, true} {
-		t.Run(fmt.Sprint(remove), func(t *testing.T) {
+	for _, mode := range []syncer.Mode{syncer.ModeCopy, syncer.ModeMirror} {
+		t.Run(fmt.Sprint(mode), func(t *testing.T) {
 			src, dst, _, dstDir := syncPair(t)
 			putSyncFile(t, dstDir, "extra", "not compared")
 			target := &observedSyncFS{FS: dst, rejectData: true}
 			if err := syncer.Sync(context.Background(), src, target, syncer.Option{
+				Mode:     mode,
 				Checksum: true,
-				Delete:   remove,
 			}); err != nil {
 				t.Fatal(err)
 			}
 			if target.dataOpens != 0 {
 				t.Fatal("destination-only file was opened")
 			}
-			if remove {
+			if mode == syncer.ModeMirror {
 				wantSyncAbsent(t, dstDir, "extra")
 			} else {
 				wantSyncFile(t, dstDir, "extra", "not compared")
@@ -554,7 +554,7 @@ func TestChecksumUsesHasher(t *testing.T) {
 }
 
 func TestSyncSelectsHashAlgorithm(t *testing.T) {
-	for _, mode := range []syncer.Mode{syncer.ModeOneWay, syncer.ModeTwoWay} {
+	for _, mode := range []syncer.Mode{syncer.ModeCopy, syncer.ModeTwoWay} {
 		for _, test := range []struct {
 			name   string
 			source []crypto.Hash

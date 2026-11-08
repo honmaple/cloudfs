@@ -30,7 +30,7 @@ func TestDryRunMatchesExecution(t *testing.T) {
 				}
 				return syncer.Sync(ctx, left, right, syncer.Option{
 					DryRun: dryRun,
-					Delete: true,
+					Mode:   syncer.ModeMirror,
 
 					StateStore: store,
 					OnConflict: syncer.PreferSrc(),
@@ -129,9 +129,12 @@ func TestDeleteLimits(t *testing.T) {
 					ctx := context.Background()
 					run := func(left, right cloudfs.FS, maxDelete, percent int) error {
 						if mode == "sync" {
+							syncMode := syncer.ModeCopy
+							if !replacement {
+								syncMode = syncer.ModeMirror
+							}
 							return syncer.Sync(ctx, left, right, syncer.Option{
-								Delete: !replacement,
-
+								Mode:             syncMode,
 								Checksum:         true,
 								StateStore:       store,
 								OnConflict:       syncer.PreferSrc(),
@@ -303,7 +306,7 @@ func TestDeleteLimitIgnoresFilteredRemovals(t *testing.T) {
 			} else {
 				err = syncer.Sync(context.Background(), left, right, syncer.Option{
 					DryRun:    true,
-					Delete:    true,
+					Mode:      syncer.ModeMirror,
 					MaxDelete: 1,
 					Skipper:   skipper,
 				})

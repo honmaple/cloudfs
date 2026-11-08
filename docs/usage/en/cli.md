@@ -119,18 +119,18 @@ Configuration uses top-level driver names only. Unqualified paths always refer t
 
 ## Synchronization Commands
 
-`sync` uses `ModeOneWay`; `bisync` uses `ModeTwoWay` and requires `--state`.
+`sync` uses `ModeCopy` by default and `ModeMirror` with `--mirror`. `bisync` uses `ModeTwoWay` and requires `--state`.
 
 Sync commands print events to stdout. File paths in those events are relative to the sync roots. Each phase result includes its own duration as `elapsed`. Finalization prints only its result.
 
 ```sh
 cloudfs --config drivers.json sync --conflict src name1:/documents name2:/backup
 cloudfs sync name1:/documents name2:/backup --dry-run --state ./sync-state.json --config drivers.json
-cloudfs --config drivers.json sync --delete --state ./sync-state.json name1:/documents name2:/backup
+cloudfs --config drivers.json sync --mirror --state ./sync-state.json name1:/documents name2:/backup
 cloudfs --config drivers.json bisync --state ./bisync-state.json name1:/documents name2:/backup
 ```
 
-`sync` synchronizes directory contents, preserving target-only files unless `--delete` is set. Optional `--state` records metadata. `bisync` requires `--state` and propagates changes and deletions in both directions. Both directories must exist. Subcommand flags can appear before or after paths.
+`sync` synchronizes directory contents and preserves target-only entries by default. With `--mirror`, it removes target-only entries after copying. Optional `--state` records metadata. `bisync` propagates changes and deletions in both directions. Both directories must exist. Subcommand flags can appear before or after paths.
 
 - `--concurrency N`: maximum parallel copies and final file removals (default 1; 0 is also serial). Values above 1 require concurrency-safe drivers and middleware. Renames, type-replacement preparation, and directory creation run first; copies precede final file and directory removals. Active tasks finish before an error is returned.
 - `--dry-run`: print phase events and file operations with `status=planned` without changing files or state.

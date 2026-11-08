@@ -13,7 +13,7 @@ import (
 )
 
 func TestPhaseEvents(t *testing.T) {
-	for _, mode := range []syncer.Mode{syncer.ModeOneWay, syncer.ModeTwoWay} {
+	for _, mode := range []syncer.Mode{syncer.ModeCopy, syncer.ModeTwoWay} {
 		for _, dryRun := range []bool{false, true} {
 			t.Run(fmt.Sprintf("mode=%d/dryRun=%t", mode, dryRun), func(t *testing.T) {
 				src, dst, srcDir, _ := syncPair(t)
@@ -253,7 +253,7 @@ func TestSyncTaskEvents(t *testing.T) {
 	putSyncFile(t, dstDir, "old/file", "remove")
 	var retained []syncer.Event
 	if err := syncer.Sync(context.Background(), src, dst, syncer.Option{
-		Delete: true,
+		Mode: syncer.ModeMirror,
 		OnEvent: taskEvents(func(event syncer.Event) {
 			if _, ok := event.(syncer.ProgressEvent); ok {
 				return

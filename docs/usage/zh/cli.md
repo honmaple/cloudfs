@@ -119,18 +119,18 @@ cloudfs --config drivers.json mv name1:/root/a.txt name2:/share/a.txt
 
 ## 同步命令
 
-`sync` 使用 `ModeOneWay`；`bisync` 使用 `ModeTwoWay`，必须指定 `--state`。
+`sync` 默认使用 `ModeCopy`，指定 `--mirror` 后使用 `ModeMirror`。`bisync` 使用 `ModeTwoWay`，必须指定 `--state`。
 
 同步命令将事件写入标准输出，事件中的文件路径相对于同步根目录。每个阶段的结果通过 `elapsed` 显示该阶段的耗时，收尾阶段只输出结果。
 
 ```sh
 cloudfs --config drivers.json sync --conflict src name1:/documents name2:/backup
 cloudfs sync name1:/documents name2:/backup --dry-run --state ./sync-state.json --config drivers.json
-cloudfs --config drivers.json sync --delete --state ./sync-state.json name1:/documents name2:/backup
+cloudfs --config drivers.json sync --mirror --state ./sync-state.json name1:/documents name2:/backup
 cloudfs --config drivers.json bisync --state ./bisync-state.json name1:/documents name2:/backup
 ```
 
-`sync` 同步目录内容，默认保留目标独有文件，`--delete` 开启删除。`--state` 可选，提供后记录元数据。`bisync` 要求 `--state`，传播双方变化及删除。两端目录须已存在。子命令选项可以放在路径之前或之后。
+`sync` 同步目录内容，默认保留目标端独有条目。指定 `--mirror` 后，会在复制完成后删除目标端独有条目。`--state` 可选，提供后记录元数据。`bisync` 双向传播变化及删除。两端目录须已存在。子命令选项可以放在路径之前或之后。
 
 - `--concurrency N`：文件复制及最后的文件删除的并发上限，默认 1，0 也按串行执行。大于 1 时要求驱动及中间件支持并发调用。重命名、类型替换准备和建目录先执行，复制后再删除文件及目录；错误后等待在途任务结束再返回。
 - `--dry-run`：输出阶段事件，计划中的文件操作标为 `status=planned`，不修改文件或状态。

@@ -44,7 +44,7 @@ func TestSync(t *testing.T) {
 	if info, err := os.Stat(filepath.Join(dstDir, "empty")); err != nil || !info.IsDir() {
 		t.Fatalf("missing empty dir: %v", err)
 	}
-	if err := syncer.Sync(ctx, src, dst, syncer.Option{OnConflict: syncer.PreferSrc(), Delete: true}); err != nil {
+	if err := syncer.Sync(ctx, src, dst, syncer.Option{OnConflict: syncer.PreferSrc(), Mode: syncer.ModeMirror}); err != nil {
 		t.Fatal(err)
 	}
 	wantSyncAbsent(t, dstDir, "extra")
@@ -95,7 +95,7 @@ func TestSyncPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	option := syncer.Option{Delete: true, StateStore: &singleSyncStore{}}
+	option := syncer.Option{Mode: syncer.ModeMirror, StateStore: &singleSyncStore{}}
 	for range 2 {
 		if err := syncer.Sync(context.Background(), src, dst, option); err != nil {
 			t.Fatal(err)
@@ -167,7 +167,7 @@ func TestSyncComparesBeforeWriting(t *testing.T) {
 	putSyncFile(t, srcDir, "a-first", "must not copy")
 	putSyncFile(t, srcDir, "z-conflict/child", "file")
 	putSyncFile(t, dstDir, "z-conflict", "existing file")
-	if err := syncer.Sync(context.Background(), src, dst); !errors.Is(err, syncer.ErrSyncConflict) {
+	if err := syncer.Sync(context.Background(), src, dst); !errors.Is(err, syncer.ErrSyncConflict) || err.Error() != "sync conflict: z-conflict: file/directory mismatch" {
 		t.Fatalf("got %v", err)
 	}
 	wantSyncAbsent(t, dstDir, "a-first")
@@ -633,7 +633,7 @@ func TestSyncScanErrorBypassesOnError(t *testing.T) {
 	putSyncFile(t, dstDir, "keep", "data")
 	source := &observedSyncFS{FS: &directoryListFault{FS: src}}
 	called := false
-	err := syncer.Sync(context.Background(), source, dst, syncer.Option{Delete: true, OnError: func(ctx context.Context, failure syncer.FileError) (syncer.ErrorPolicy, error) {
+	err := syncer.Sync(context.Background(), source, dst, syncer.Option{Mode: syncer.ModeMirror, OnError: func(ctx context.Context, failure syncer.FileError) (syncer.ErrorPolicy, error) {
 		called = true
 		return syncer.ErrorRetry, nil
 	}})
@@ -679,7 +679,7 @@ func TestSyncFreshComparisonAfterDeletionError(t *testing.T) {
 	putSyncFile(t, srcDir, "file", "contents")
 	putSyncFile(t, dstDir, "extra/child", "remove")
 	target := &fileOperationFaultFS{FS: dst}
-	option := syncer.Option{Delete: true, StateStore: &singleSyncStore{}}
+	option := syncer.Option{Mode: syncer.ModeMirror, StateStore: &singleSyncStore{}}
 	if err := syncer.Sync(context.Background(), src, target, option); !errors.Is(err, errSyncTest) {
 		t.Fatalf("got %v", err)
 	}
@@ -775,7 +775,7 @@ func TestSyncOnErrorRetriesCurrentDirectoryOrRemoval(t *testing.T) {
 	putSyncFile(t, dstDir, "extra", "remove")
 	calls := make(map[string]int)
 	target := &observedSyncFS{FS: dst}
-	err := syncer.Sync(context.Background(), src, &fileOperationFaultFS{FS: target}, syncer.Option{Delete: true, OnError: func(ctx context.Context, failure syncer.FileError) (syncer.ErrorPolicy, error) {
+	err := syncer.Sync(context.Background(), src, &fileOperationFaultFS{FS: target}, syncer.Option{Mode: syncer.ModeMirror, OnError: func(ctx context.Context, failure syncer.FileError) (syncer.ErrorPolicy, error) {
 		path := failure.FileInfo.Path()
 		calls[path]++
 		if !errors.Is(failure.Err, errSyncTest) {
@@ -846,7 +846,7 @@ func TestSyncOnErrorIgnoreDirectoryAndRemoval(t *testing.T) {
 	putSyncFile(t, dstDir, "extra", "keep until retry")
 	target := &fileOperationFaultFS{FS: dst}
 	calls := make(map[string]int)
-	option := syncer.Option{Delete: true, StateStore: &singleSyncStore{}, OnError: func(ctx context.Context, failure syncer.FileError) (syncer.ErrorPolicy, error) {
+	option := syncer.Option{Mode: syncer.ModeMirror, StateStore: &singleSyncStore{}, OnError: func(ctx context.Context, failure syncer.FileError) (syncer.ErrorPolicy, error) {
 		path := failure.FileInfo.Path()
 		calls[path]++
 		return syncer.ErrorSkip, nil
@@ -939,7 +939,7 @@ func TestSyncOnErrorUsesSynchronizationContext(t *testing.T) {
 	ctx := context.WithValue(context.Background(), contextKey{}, "sync")
 	calls := 0
 	err := syncer.Sync(ctx, &sourceReadFault{FS: source, remainingFailures: 1}, &fileOperationFaultFS{FS: target}, syncer.Option{
-		Delete: true,
+		Mode: syncer.ModeMirror,
 		OnError: func(handlerCtx context.Context, _ syncer.FileError) (syncer.ErrorPolicy, error) {
 			calls++
 			if handlerCtx != ctx {
@@ -1008,7 +1008,7 @@ func TestSyncChecksumRejectsChangedTransfer(t *testing.T) {
 }
 
 func TestSyncCanChangeChecksumOption(t *testing.T) {
-	for _, mode := range []syncer.Mode{syncer.ModeOneWay, syncer.ModeTwoWay} {
+	for _, mode := range []syncer.Mode{syncer.ModeCopy, syncer.ModeTwoWay} {
 		t.Run(fmt.Sprint(mode), func(t *testing.T) {
 			src, dst, srcDir, dstDir := syncPair(t)
 			putSyncFile(t, srcDir, "file", "contents")
@@ -1074,7 +1074,7 @@ func TestSyncCallbacksUseScannedFileInfo(t *testing.T) {
 	started := make(map[string]syncer.FileInfo)
 	errorsSeen := make(map[string]syncer.FileInfo)
 	err := syncer.Sync(context.Background(), fault, &fileOperationFaultFS{FS: target}, syncer.Option{
-		Delete: true, Checksum: true,
+		Mode: syncer.ModeMirror, Checksum: true,
 		OnEvent: taskEvents(func(notification syncer.Event) {
 			if _, ok := notification.(syncer.ProgressEvent); ok {
 				return
@@ -1196,7 +1196,7 @@ func TestSyncTypeConflictPolicies(t *testing.T) {
 				putSyncFile(t, dstDir, "conflict-neighbor", "neighbor")
 				calls := 0
 				ctx := context.WithValue(context.Background(), struct{}{}, "conflict-context")
-				option := syncer.Option{Delete: true, OnConflict: func(callbackCtx context.Context, conflict syncer.Conflict) (syncer.ConflictPolicy, error) {
+				option := syncer.Option{Mode: syncer.ModeMirror, OnConflict: func(callbackCtx context.Context, conflict syncer.Conflict) (syncer.ConflictPolicy, error) {
 					calls++
 					if callbackCtx != ctx || conflict.Source.Path() != "conflict" || conflict.Target.Path() != "conflict" || conflict.Source.IsDir() != sourceDir || conflict.Target.IsDir() == sourceDir || conflict.SourceState != nil || conflict.TargetState != nil {
 						t.Fatalf("unexpected conflict: %+v", conflict)
@@ -1345,7 +1345,7 @@ func TestDirectoryRemovalUsesOneOperation(t *testing.T) {
 			src, dst, srcDir, dstDir := syncPair(t)
 			ctx := context.Background()
 			store := &singleSyncStore{}
-			syncOption := syncer.Option{Delete: true, StateStore: store, OnConflict: syncer.PreferSrc()}
+			syncOption := syncer.Option{Mode: syncer.ModeMirror, StateStore: store, OnConflict: syncer.PreferSrc()}
 			biOption := syncer.Option{
 				Mode:       syncer.ModeTwoWay,
 				StateStore: store, OnConflict: syncer.PreferSrc()}

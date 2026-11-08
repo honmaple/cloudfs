@@ -93,10 +93,10 @@ const (
 	// ConflictPreferSrc uses the source version, including source deletions.
 	ConflictPreferSrc
 	// ConflictPreferDst uses the target version, including target deletions.
-	// ModeOneWay preserves the conflicting subtree without writing back to the source.
+	// ModeCopy and ModeMirror preserve the conflicting subtree without writing back to the source.
 	ConflictPreferDst
 	// ConflictKeepBoth preserves conflicting versions under separate paths in ModeTwoWay.
-	// ModeOneWay rejects it. A surviving version wins over a deletion.
+	// A surviving version wins over a deletion.
 	ConflictKeepBoth
 )
 
@@ -174,13 +174,13 @@ func PreferSrc() ConflictHandler {
 }
 
 // PreferDst selects the target version, including target deletions.
-// ModeOneWay preserves the conflicting path without writing back to the source.
+// ModeCopy and ModeMirror preserve the conflicting path without writing back to the source.
 func PreferDst() ConflictHandler {
 	return fixedConflict(ConflictPreferDst)
 }
 
 // KeepBoth preserves conflicting versions at separate paths in ModeTwoWay.
-// ModeOneWay rejects this decision when a conflict is found.
+// ModeCopy and ModeMirror reject this decision when a conflict is found.
 func KeepBoth() ConflictHandler {
 	return fixedConflict(ConflictKeepBoth)
 }

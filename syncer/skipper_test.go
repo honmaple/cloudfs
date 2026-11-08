@@ -18,7 +18,7 @@ func TestSkipper(t *testing.T) {
 			store := &singleSyncStore{}
 			run := func(skip syncer.Skipper) error {
 				if mode == "sync" {
-					return syncer.Sync(context.Background(), src, dst, syncer.Option{Delete: true, StateStore: store, OnConflict: syncer.PreferSrc(), Skipper: skip})
+					return syncer.Sync(context.Background(), src, dst, syncer.Option{Mode: syncer.ModeMirror, StateStore: store, OnConflict: syncer.PreferSrc(), Skipper: skip})
 				}
 				return syncer.Sync(context.Background(), src, dst, syncer.Option{
 					Mode:       syncer.ModeTwoWay,
@@ -105,7 +105,7 @@ func TestSkipperProtectsAncestorOperations(t *testing.T) {
 				skip := func(info syncer.FileInfo) bool { return info.Path() == "dir/secret" }
 				var err error
 				if mode == "sync" {
-					err = syncer.Sync(context.Background(), left, right, syncer.Option{Delete: true, Skipper: skip, OnConflict: syncer.PreferSrc()})
+					err = syncer.Sync(context.Background(), left, right, syncer.Option{Mode: syncer.ModeMirror, Skipper: skip, OnConflict: syncer.PreferSrc()})
 				} else {
 					err = syncer.Sync(context.Background(), left, right, syncer.Option{
 						Mode:       syncer.ModeTwoWay,
@@ -138,7 +138,7 @@ func TestSkipperOneWayDirectoryOperations(t *testing.T) {
 				putSyncFile(t, dstDir, "dir/public", "keep subtree")
 			}
 			if err := syncer.Sync(context.Background(), src, dst, syncer.Option{
-				Delete:     true,
+				Mode:       syncer.ModeMirror,
 				OnConflict: syncer.PreferSrc(),
 				Skipper: func(info syncer.FileInfo) bool {
 					return info.Path() == "dir/secret"
@@ -243,7 +243,7 @@ func TestSkipperIgnoresMissingSideHistory(t *testing.T) {
 				if mode == "sync" {
 					return syncer.Sync(context.Background(), src, dst, syncer.Option{
 						StateStore: store,
-						Delete:     true,
+						Mode:       syncer.ModeMirror,
 						Skipper:    skip,
 						OnConflict: syncer.PreferSrc(),
 					})
@@ -354,7 +354,7 @@ func TestSkipperPrunesOtherSideTraversal(t *testing.T) {
 	directories := 0
 	if err := syncer.Sync(context.Background(), src, &denySyncWrites{FS: dst}, syncer.Option{
 		Checksum: true,
-		Delete:   true,
+		Mode:     syncer.ModeMirror,
 		Skipper: func(info syncer.FileInfo) bool {
 			if info.Path() == "dir" {
 				directories++

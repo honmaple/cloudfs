@@ -93,7 +93,7 @@ func TestSyncCommands(t *testing.T) {
 				}
 			} else {
 				os.WriteFile(filepath.Join(right, "backup/extra"), []byte("extra"), 0600)
-				if _, err := cliRun(config, "sync", "--state", state, "--delete", "left:/docs", "right:/backup"); err != nil {
+				if _, err := cliRun(config, "sync", "--state", state, "--mirror", "left:/docs", "right:/backup"); err != nil {
 					t.Fatal(err)
 				}
 				if _, err := os.Stat(filepath.Join(right, "backup/extra")); !errors.Is(err, os.ErrNotExist) {

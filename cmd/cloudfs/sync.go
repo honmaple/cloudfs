@@ -47,12 +47,16 @@ var syncFlags = []cli.Flag{
 }
 
 func syncAction(ctx context.Context, c *cli.Command, drivers *driverSet) error {
+	mode := syncer.ModeCopy
+	if c.Bool("mirror") {
+		mode = syncer.ModeMirror
+	}
 	s := &syncRun{
 		cli:     c,
 		drivers: drivers,
 	}
 	return s.run(ctx, syncer.Option{
-		Delete: c.Bool("delete"),
+		Mode: mode,
 	})
 }
 
