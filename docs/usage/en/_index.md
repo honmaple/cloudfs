@@ -226,7 +226,12 @@ return errors.Join(err, w.Close())
 err := cloudfs.CopyBetween(ctx, srcFS, "/docs/a.txt", dstFS, "/backup/b.txt")
 ```
 
-Directory copies merge into the destination, preserving empty directories and target-only entries. A file copy requires an existing parent directory and can overwrite an existing file. Symbolic links and other special files are unsupported. The caller must ensure the source and destination do not overlap and close both filesystems. `CopyBetween` closes the streams it opens and returns transfer and close errors. A failed copy can leave partial destination content.
+- Directory copies merge into the destination, preserving empty directories and target-only entries.
+- A file copy requires an existing parent directory and can overwrite an existing file.
+- Regular files and directories are supported. Symbolic links and other special files return an error.
+- The caller must ensure the source and destination do not overlap and close both filesystems.
+- `CopyBetween` closes the streams it opens and returns transfer and close errors.
+- A failed copy can leave partial destination content.
 
 ## Driver Capability Matrix
 

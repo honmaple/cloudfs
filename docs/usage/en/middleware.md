@@ -61,7 +61,12 @@ fs, err := middleware.NewFS(base, middleware.PaginationFS(&middleware.Pagination
 files, err := fs.List(ctx, "/photos?page=2&page_size=100")
 ```
 
-`PageKey` (`page_key`) defaults to `page`; `PageSizeKey` (`page_size_key`) defaults to `page_size`. Pages start at 1; nonpositive pages become 1. A nonpositive page size delegates unchanged. When enabled, pagination removes these two query parameters before delegating and preserves other parameters. Out-of-range pages return an empty slice.
+- `PageKey` (`page_key`) defaults to `page`.
+- `PageSizeKey` (`page_size_key`) defaults to `page_size`.
+- Pages start at 1. Nonpositive pages become 1.
+- A nonpositive page size delegates unchanged.
+- Pagination removes these two query parameters before delegating and preserves other parameters.
+- Out-of-range pages return an empty slice.
 
 ### RateLimitFS
 

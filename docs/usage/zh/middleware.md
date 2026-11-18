@@ -61,7 +61,12 @@ fs, err := middleware.NewFS(base, middleware.PaginationFS(&middleware.Pagination
 files, err := fs.List(ctx, "/photos?page=2&page_size=100")
 ```
 
-`PageKey` / `page_key` 默认 `page`，`PageSizeKey` / `page_size_key` 默认 `page_size`。页码从 1 开始，非正页码按 1 处理；`page_size <= 0` 时原样委托底层。启用分页时，先从查询中移除这两个参数，再向底层传递其他参数。越界页返回空列表。
+- `PageKey` / `page_key` 默认 `page`。
+- `PageSizeKey` / `page_size_key` 默认 `page_size`。
+- 页码从 1 开始，非正页码按 1 处理。
+- `page_size <= 0` 时原样委托底层。
+- 启用分页时，先从查询中移除这两个参数，再向底层传递其他参数。
+- 越界页返回空列表。
 
 ### RateLimitFS
 
